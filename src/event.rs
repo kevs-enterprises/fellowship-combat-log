@@ -183,10 +183,10 @@ pub struct Encounter {
     pub bosses: Vec<String>,
 }
 
-/// A `COMBATANT_INFO` line, framed at the top level. The deeply-nested stat/gear/
-/// talent payload and the catalog name-join are decoded by a later slice; this
-/// captures the identity anchors it exposes as plain pipe fields.
-#[derive(Clone, PartialEq, Eq, Debug)]
+/// A `COMBATANT_INFO` line. The identity anchors plus the build context a sim
+/// reproduces (hero, average item level, the final computed stat sheet, talent
+/// picks) are decoded here; the deeply-nested gear payload stays deferred.
+#[derive(Clone, PartialEq, Debug)]
 pub struct CombatantInfo {
     /// f3: the persistent character ULID (1:1 with character name).
     pub ulid: String,
@@ -196,6 +196,12 @@ pub struct CombatantInfo {
     pub is_recording_player: bool,
     /// f7: hero id.
     pub hero_id: u32,
+    /// f8: average item level (the mean of the 14 gear ilvls).
+    pub item_level: f64,
+    /// f9: the final computed stat sheet — post-DR, post-set-bonus, sim-consumable.
+    pub stat_sheet: Vec<f64>,
+    /// f10: hero talent picks.
+    pub talents: Vec<u32>,
 }
 
 /// A `DAMAGE_ABSORBED` event (14 fields): an absorb credited to a shield. Caster-

@@ -249,6 +249,9 @@ fn combatant_info(fields: &[&str]) -> Result<EventBody, ParseError> {
         player: guid(fields, 4, "player")?,
         is_recording_player: field(fields, 6)? == "1",
         hero_id: number(fields, 7, "hero id")?,
+        item_level: number(fields, 8, "item level")?,
+        stat_sheet: parse_float_array(field(fields, 9)?, 9)?,
+        talents: parse_int_array(field(fields, 10)?, 10)?,
     }))
 }
 
@@ -471,6 +474,26 @@ fn parse_int_array(s: &str, field: usize) -> Result<Vec<u32>, ParseError> {
                 .map_err(|_| ParseError::BadField {
                     field,
                     reason: "int array element",
+                })
+        })
+        .collect()
+}
+
+/// A bracketed float array (`[31922,0,32.60]`, mixed ints/floats) → the values.
+fn parse_float_array(s: &str, field: usize) -> Result<Vec<f64>, ParseError> {
+    let elements = split_bracket_list(s).ok_or(ParseError::BadField {
+        field,
+        reason: "float array",
+    })?;
+    elements
+        .iter()
+        .map(|element| {
+            element
+                .trim()
+                .parse::<f64>()
+                .map_err(|_| ParseError::BadField {
+                    field,
+                    reason: "float array element",
                 })
         })
         .collect()
