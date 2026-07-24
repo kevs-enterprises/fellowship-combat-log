@@ -83,6 +83,12 @@ pub struct DamageHeal {
     pub raw: i64,
     pub school: School,
     pub result: ResultTier,
+    /// f17: source current HP, u32-wrap normalized — a post-death line logs a
+    /// wrapped (negative) value, but its damage still counts. The rest of the
+    /// source/target unit-state blocks are decoded once a consumer reads them.
+    pub source_cur_hp: i32,
+    /// f24: target current HP, u32-wrap normalized.
+    pub target_cur_hp: i32,
 }
 
 /// Which phase of the cast/channel pipeline a line records. `*Start` carries the

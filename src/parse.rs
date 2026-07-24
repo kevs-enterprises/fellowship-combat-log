@@ -144,7 +144,15 @@ fn damage_heal(fields: &[&str], kind: DamageHealKind) -> Result<EventBody, Parse
         raw: number(fields, 14, "raw")?,
         school: parse_school(field(fields, 15)?)?,
         result: parse_result(field(fields, 16)?)?,
+        source_cur_hp: normalize_hp(fields, 17)?,
+        target_cur_hp: normalize_hp(fields, 24)?,
     }))
+}
+
+/// Decode a current-HP field, reinterpreting a u32-wrapped value as a negative
+/// i32 — a post-death line logs curHP as e.g. `4294962654` = −4642.
+fn normalize_hp(fields: &[&str], n: usize) -> Result<i32, ParseError> {
+    Ok(number::<u32>(fields, n, "current hp")? as i32)
 }
 
 /// Cast/channel base (16 fields): f3 caster, f5 ability id, f7 has-target,
