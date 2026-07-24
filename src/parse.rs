@@ -1,68 +1,17 @@
 //! v8 combat-log line parsing (see the v8 combat-log format reference). Total
 //! over its input — a malformed, short, or unrecognized line yields an
-//! `Event::Unknown` or a `ParseError`, never a panic — because the corpus
-//! contains routine quirks (u32-wrapped HP, negative amplification) that must
-//! decode without choking even though this layer doesn't yet interpret them.
-//! Naive pipe-splitting is safe corpus-wide: no `|` occurs inside quoted strings
-//! or bracketed lists.
+//! `Unknown` body or a `ParseError`, never a panic — because the corpus contains
+//! routine quirks (u32-wrapped HP, negative amplification) that must decode
+//! without choking even though this layer doesn't yet interpret them. Naive
+//! pipe-splitting the whole line is always safe (no `|` inside quoted strings or
+//! bracketed lists); splitting a *bracketed* field on commas is never safe, so
+//! bracket contents go through a nesting-aware tokenizer.
 
-/// A combat-log unit id (§2). `Player` ids are ephemeral u32s (reassigned per
-/// dungeon instance); `Npc` ids carry a stable creature-template suffix; the
-/// `Environment`/`Unrecognized` namespaces are game content, never anonymized.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Guid {
-    Player(u32),
-    Npc { spawn: u32, template: u32 },
-    Environment,
-    Unrecognized,
-}
-
-/// Attack/heal result tier (f16). Crits are indicated *only* here — there is no
-/// separate crit-amount field (§3.1).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ResultTier {
-    Hit,
-    CriticalStrike,
-    GrievousCriticalStrike,
-    Block,
-    Parry,
-    Dodge,
-    Miss,
-    None,
-}
-
-/// Damage school (f15).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum School {
-    Physical,
-    Magical,
-    None,
-}
-
-/// A damage/heal event decoded from the shared 30-field anatomy. Only the fields
-/// the extract folds on are decoded here; the full source/target unit-state
-/// blocks (f17–30) and heal-specific semantics are decoded once a consumer needs
-/// them.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct DamageEvent {
-    pub source: Guid,
-    pub target: Guid,
-    pub ability_id: u32,
-    /// f10: amount actually applied to health (damage dealt / effective healing).
-    pub applied: i64,
-    /// f14: raw/base amount before target-side mitigation (0 for heals).
-    pub raw: i64,
-    pub school: School,
-    pub result: ResultTier,
-}
-
-/// One parsed log line. Unknown event types are surfaced, never dropped, so a
-/// later event-family sweep can find the long tail.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Event {
-    Damage(DamageEvent),
-    Unknown { raw_type: String },
-}
+use crate::event::{
+    Cast, CastPhase, CombatantInfo, DamageHeal, DamageHealKind, Effect, EffectPhase, Encounter,
+    EncounterPhase, Event, EventBody, Guid, Polarity, ResourceChange, ResultTier, School,
+};
+use crate::timestamp::parse_instant;
 
 /// Why a line could not be parsed. Total parsing hands callers an `Err`, never a
 /// panic.
@@ -73,29 +22,15 @@ pub enum ParseError {
     BadField { field: usize, reason: &'static str },
 }
 
-/// The six damage/heal families that share the 30-field anatomy. The
-/// damage-shaped but vestigial `EVENT_INVALID` line is deliberately excluded — it
-/// surfaces as an `Unknown` so it can never be folded as real damage; giving it
-/// proper drop semantics is a later concern.
-const DAMAGE_HEAL_TYPES: &[&str] = &[
-    "ABILITY_DAMAGE",
-    "SWING_DAMAGE",
-    "ABILITY_PERIODIC_DAMAGE",
-    "ABILITY_HEAL",
-    "ABILITY_PERIODIC_HEAL",
-    "ABILITY_LIFESTEAL_HEAL",
-];
-
 /// Parse one v8 log line. `seq` is the file line number — the ordering tiebreaker
-/// for the sub-millisecond ties the ordered event stream will need; it is part of
-/// the surface now so that stream doesn't force a later signature change. Field 2
-/// selects the event family.
+/// for sub-millisecond ties. Field 1 is the timestamp; field 2 selects the family.
 pub fn parse_line(seq: u32, text: &str) -> Result<Event, ParseError> {
-    let _ = seq;
     let line = text.trim_end_matches(['\n', '\r']);
     if line.is_empty() {
         return Err(ParseError::Empty);
     }
+    // A trailing `|` yields an empty last field — `split` keeps it, so per-family
+    // field counts stay exact (some families legitimately end in `|`).
     let fields: Vec<&str> = line.split('|').collect();
     if fields.len() < 2 {
         return Err(ParseError::TooFewFields {
@@ -103,52 +38,194 @@ pub fn parse_line(seq: u32, text: &str) -> Result<Event, ParseError> {
             got: fields.len(),
         });
     }
-    if DAMAGE_HEAL_TYPES.contains(&fields[1]) {
-        parse_damage(&fields).map(Event::Damage)
-    } else {
-        Ok(Event::Unknown {
-            raw_type: fields[1].to_string(),
-        })
-    }
-}
-
-/// Decode the shared 30-field damage/heal anatomy. Only the fields through f16
-/// are needed so far; the source/target unit-state blocks (f17–30) are decoded
-/// once a consumer reads them.
-fn parse_damage(fields: &[&str]) -> Result<DamageEvent, ParseError> {
-    if fields.len() < 16 {
-        return Err(ParseError::TooFewFields {
-            expected: 16,
-            got: fields.len(),
-        });
-    }
-    let source = parse_guid(fields[2]).ok_or(ParseError::BadField {
-        field: 3,
-        reason: "source guid",
+    let instant = parse_instant(seq, fields[0]).ok_or(ParseError::BadField {
+        field: 1,
+        reason: "timestamp",
     })?;
-    let target = parse_guid(fields[4]).ok_or(ParseError::BadField {
-        field: 5,
-        reason: "target guid",
-    })?;
-    let ability_id = parse_num(fields[6], 7, "ability id")?;
-    let applied = parse_num(fields[9], 10, "applied amount")?;
-    let raw = parse_num(fields[13], 14, "raw amount")?;
-    let school = parse_school(fields[14])?;
-    let result = parse_result(fields[15])?;
-    Ok(DamageEvent {
-        source,
-        target,
-        ability_id,
-        applied,
-        raw,
-        school,
-        result,
+    Ok(Event {
+        instant,
+        body: parse_body(&fields)?,
     })
 }
 
-/// Decode a unit id across the four v8 namespaces (§2). Returns `None` when the
-/// namespace or its numeric parts don't parse, so the caller can report which
-/// field failed.
+fn parse_body(fields: &[&str]) -> Result<EventBody, ParseError> {
+    use DamageHealKind::*;
+    match fields[1] {
+        "ABILITY_DAMAGE" => damage_heal(fields, AbilityDamage),
+        "SWING_DAMAGE" => damage_heal(fields, SwingDamage),
+        "ABILITY_PERIODIC_DAMAGE" => damage_heal(fields, PeriodicDamage),
+        "ABILITY_HEAL" => damage_heal(fields, Heal),
+        "ABILITY_PERIODIC_HEAL" => damage_heal(fields, PeriodicHeal),
+        "ABILITY_LIFESTEAL_HEAL" => damage_heal(fields, LifestealHeal),
+        "ABILITY_ACTIVATED" => cast(fields, CastPhase::Activated),
+        "ABILITY_CAST_SUCCESS" => cast(fields, CastPhase::CastSuccess),
+        "ABILITY_CHANNEL_SUCCESS" => cast(fields, CastPhase::ChannelSuccess),
+        "ABILITY_CAST_START" => {
+            cast_timed(fields, |cast_seconds| CastPhase::CastStart { cast_seconds })
+        }
+        "ABILITY_CHANNEL_START" => cast_timed(fields, |cast_seconds| CastPhase::ChannelStart {
+            cast_seconds,
+        }),
+        "ABILITY_CAST_FAIL" => cast_failed(fields, |reason| CastPhase::CastFail { reason }),
+        "ABILITY_CHANNEL_FAIL" => cast_failed(fields, |reason| CastPhase::ChannelFail { reason }),
+        "EFFECT_APPLIED" => effect(fields, EffectPhase::Applied),
+        "EFFECT_REMOVED" => effect(fields, EffectPhase::Removed),
+        "EFFECT_REFRESHED" => effect(fields, EffectPhase::Refreshed),
+        "RESOURCE_CHANGED" => resource_changed(fields),
+        "ENCOUNTER_START" => encounter(fields, false),
+        "ENCOUNTER_END" => encounter(fields, true),
+        "COMBATANT_INFO" => combatant_info(fields),
+        other => Ok(EventBody::Unknown {
+            raw_type: other.to_string(),
+        }),
+    }
+}
+
+// --- field accessors (1-based, matching the reference's f-numbers) ---
+
+fn field<'a>(fields: &[&'a str], n: usize) -> Result<&'a str, ParseError> {
+    fields.get(n - 1).copied().ok_or(ParseError::TooFewFields {
+        expected: n,
+        got: fields.len(),
+    })
+}
+
+fn number<T: std::str::FromStr>(
+    fields: &[&str],
+    n: usize,
+    reason: &'static str,
+) -> Result<T, ParseError> {
+    field(fields, n)?
+        .parse()
+        .map_err(|_| ParseError::BadField { field: n, reason })
+}
+
+fn guid(fields: &[&str], n: usize, reason: &'static str) -> Result<Guid, ParseError> {
+    parse_guid(field(fields, n)?).ok_or(ParseError::BadField { field: n, reason })
+}
+
+// --- family decoders (only the fields downstream needs; unit-state deferred) ---
+
+/// Shared 30-field damage/heal anatomy. The source/target unit-state blocks
+/// (f17–30) are decoded once a consumer reads them.
+fn damage_heal(fields: &[&str], kind: DamageHealKind) -> Result<EventBody, ParseError> {
+    Ok(EventBody::DamageHeal(DamageHeal {
+        kind,
+        source: guid(fields, 3, "source")?,
+        target: guid(fields, 5, "target")?,
+        ability_id: number(fields, 7, "ability id")?,
+        parent_ability_id: number(fields, 9, "parent ability")?,
+        applied: number(fields, 10, "applied")?,
+        absorbed: number(fields, 11, "absorbed")?,
+        overkill: number(fields, 12, "overkill")?,
+        blocked: number(fields, 13, "blocked")?,
+        raw: number(fields, 14, "raw")?,
+        school: parse_school(field(fields, 15)?)?,
+        result: parse_result(field(fields, 16)?)?,
+    }))
+}
+
+/// Cast/channel base (16 fields): f3 caster, f5 ability id, f7 has-target,
+/// f8 target. The caster unit-state block (f10–16) is decoded once needed.
+fn cast_common(fields: &[&str], phase: CastPhase) -> Result<Cast, ParseError> {
+    Ok(Cast {
+        phase,
+        caster: guid(fields, 3, "caster")?,
+        ability_id: number(fields, 5, "ability id")?,
+        has_target: field(fields, 7)? == "1",
+        target: guid(fields, 8, "target")?,
+    })
+}
+
+fn cast(fields: &[&str], phase: CastPhase) -> Result<EventBody, ParseError> {
+    Ok(EventBody::Cast(cast_common(fields, phase)?))
+}
+
+/// A `*_START` cast/channel: the base plus the trailing f17 cast-time float. The
+/// caller supplies the phase constructor, so the start/channel split can't be
+/// mismatched.
+fn cast_timed(
+    fields: &[&str],
+    make_phase: impl Fn(f64) -> CastPhase,
+) -> Result<EventBody, ParseError> {
+    let cast_seconds = number(fields, 17, "cast time")?;
+    Ok(EventBody::Cast(cast_common(
+        fields,
+        make_phase(cast_seconds),
+    )?))
+}
+
+/// A `*_FAIL` cast/channel: the base plus the trailing f17 quoted reason.
+fn cast_failed(
+    fields: &[&str],
+    make_phase: impl Fn(String) -> CastPhase,
+) -> Result<EventBody, ParseError> {
+    let reason = unquote(field(fields, 17)?).to_string();
+    Ok(EventBody::Cast(cast_common(fields, make_phase(reason))?))
+}
+
+/// Effect (aura) events (21 fields; refreshed = 23 with the trailing refresher).
+fn effect(fields: &[&str], phase: EffectPhase) -> Result<EventBody, ParseError> {
+    Ok(EventBody::Effect(Effect {
+        phase,
+        caster: guid(fields, 3, "caster")?,
+        target: guid(fields, 5, "target")?,
+        effect_id: number(fields, 7, "effect id")?,
+        duration_seconds: number(fields, 9, "duration")?,
+        stacks: number(fields, 10, "stacks")?,
+        polarity: parse_polarity(field(fields, 11)?)?,
+        granting_ability_id: number(fields, 19, "granting ability")?,
+        refresher: match phase {
+            EffectPhase::Refreshed => Some(guid(fields, 22, "refresher")?),
+            _ => None,
+        },
+    }))
+}
+
+/// `RESOURCE_CHANGED` (13 fields) — scalar fields only.
+fn resource_changed(fields: &[&str]) -> Result<EventBody, ParseError> {
+    Ok(EventBody::ResourceChange(ResourceChange {
+        source: guid(fields, 3, "source")?,
+        owner: guid(fields, 5, "owner")?,
+        resource_type: number(fields, 7, "resource type")?,
+        delta: number(fields, 8, "delta")?,
+        current: number(fields, 9, "current")?,
+        max: number(fields, 10, "max")?,
+        causing_ability_id: number(fields, 12, "causing ability")?,
+    }))
+}
+
+/// `ENCOUNTER_START` (4 fields) / `ENCOUNTER_END` (5 fields, trailing success).
+fn encounter(fields: &[&str], has_success: bool) -> Result<EventBody, ParseError> {
+    let phase = if has_success {
+        EncounterPhase::End {
+            success: field(fields, 5)? == "1",
+        }
+    } else {
+        EncounterPhase::Start
+    };
+    Ok(EventBody::Encounter(Encounter {
+        phase,
+        encounter_id: number(fields, 3, "encounter id")?,
+        bosses: parse_name_array(field(fields, 4)?)?,
+    }))
+}
+
+/// `COMBATANT_INFO` (20 fields) framed at the top level: the deeply-nested stat/
+/// gear/talent payload and the catalog name-join are decoded by a later slice.
+fn combatant_info(fields: &[&str]) -> Result<EventBody, ParseError> {
+    Ok(EventBody::CombatantInfo(CombatantInfo {
+        ulid: field(fields, 3)?.to_string(),
+        player: guid(fields, 4, "player")?,
+        is_recording_player: field(fields, 6)? == "1",
+        hero_id: number(fields, 7, "hero id")?,
+    }))
+}
+
+// --- primitive decoders ---
+
+/// Decode a unit id across the four v8 namespaces. `None` when the namespace or
+/// its numeric parts don't parse, so the caller can report which field failed.
 fn parse_guid(s: &str) -> Option<Guid> {
     if s == "Environment-0" {
         return Some(Guid::Environment);
@@ -167,15 +244,6 @@ fn parse_guid(s: &str) -> Option<Guid> {
         });
     }
     None
-}
-
-fn parse_num<T: std::str::FromStr>(
-    s: &str,
-    field: usize,
-    reason: &'static str,
-) -> Result<T, ParseError> {
-    s.parse::<T>()
-        .map_err(|_| ParseError::BadField { field, reason })
 }
 
 fn parse_school(s: &str) -> Result<School, ParseError> {
@@ -205,4 +273,66 @@ fn parse_result(s: &str) -> Result<ResultTier, ParseError> {
             reason: "result tier",
         }),
     }
+}
+
+fn parse_polarity(s: &str) -> Result<Polarity, ParseError> {
+    match s {
+        "BUFF" => Ok(Polarity::Buff),
+        "DEBUFF" => Ok(Polarity::Debuff),
+        _ => Err(ParseError::BadField {
+            field: 11,
+            reason: "polarity",
+        }),
+    }
+}
+
+/// Strip one layer of surrounding double quotes; no backslash escaping exists in
+/// the corpus, so a quoted string is simply `"…"`.
+fn unquote(s: &str) -> &str {
+    s.strip_prefix('"')
+        .and_then(|inner| inner.strip_suffix('"'))
+        .unwrap_or(s)
+}
+
+/// A quoted-name array (`["Boss A","Xul, The Blood Monolith"]`) → the names. Uses
+/// the nesting-aware tokenizer so a name's internal comma never splits an element.
+fn parse_name_array(s: &str) -> Result<Vec<String>, ParseError> {
+    let elements = split_bracket_list(s).ok_or(ParseError::BadField {
+        field: 4,
+        reason: "name array",
+    })?;
+    Ok(elements
+        .iter()
+        .map(|element| unquote(element.trim()).to_string())
+        .collect())
+}
+
+/// Split a bracketed list (`[a,(b,c),["d","e"]]`) into its top-level element
+/// slices, respecting quoted strings and nested brackets/parens so a comma inside
+/// a quote or a nested group never splits. Input includes the outer `[` `]`; the
+/// nesting-awareness is what a deeper nested-payload decode will reuse. `None`
+/// when the outer brackets are absent.
+fn split_bracket_list(s: &str) -> Option<Vec<&str>> {
+    let inner = s.strip_prefix('[')?.strip_suffix(']')?;
+    if inner.is_empty() {
+        return Some(Vec::new());
+    }
+    let mut elements = Vec::new();
+    let mut depth = 0i32;
+    let mut in_quote = false;
+    let mut start = 0;
+    for (i, byte) in inner.bytes().enumerate() {
+        match byte {
+            b'"' => in_quote = !in_quote,
+            b'[' | b'(' if !in_quote => depth += 1,
+            b']' | b')' if !in_quote => depth -= 1,
+            b',' if !in_quote && depth == 0 => {
+                elements.push(&inner[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    elements.push(&inner[start..]);
+    Some(elements)
 }

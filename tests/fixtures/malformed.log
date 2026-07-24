@@ -1,0 +1,4 @@
+justonefield
+badtimestamp|ENCOUNTER_START|30|["Boss"]
+2026-07-22T10:29:06.540+02:00|ABILITY_DAMAGE|Player-1|"P1"|Npc-1-1
+2026-07-22T10:29:06.540+02:00|ABILITY_DAMAGE|NotAGuid|"x"|Npc-1-1|"y"|2|"a"|1|1|0|-1|0|1|Magical|Hit|1|1|1|0.0|0.0|0.0|[]|1|1|1|0.0|0.0|0.0|[]
