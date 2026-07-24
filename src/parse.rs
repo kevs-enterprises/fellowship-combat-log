@@ -8,8 +8,10 @@
 //! bracket contents go through a nesting-aware tokenizer.
 
 use crate::event::{
-    Cast, CastPhase, CombatantInfo, DamageHeal, DamageHealKind, Effect, EffectPhase, Encounter,
-    EncounterPhase, Event, EventBody, Guid, Polarity, ResourceChange, ResultTier, School,
+    Cast, CastPhase, CombatantInfo, DamageAbsorbed, DamageHeal, DamageHealKind, Death, DeathKind,
+    Dispel, DungeonEnd, DungeonStart, Effect, EffectPhase, Encounter, EncounterPhase, Event,
+    EventBody, Guid, Interrupt, LoggingStarted, MapChange, Marker, Polarity, ResourceChange,
+    ResultTier, Resurrect, School, WorldMarker, ZoneChange,
 };
 use crate::timestamp::parse_instant;
 
@@ -72,9 +74,29 @@ fn parse_body(fields: &[&str]) -> Result<EventBody, ParseError> {
         "EFFECT_REMOVED" => effect(fields, EffectPhase::Removed),
         "EFFECT_REFRESHED" => effect(fields, EffectPhase::Refreshed),
         "RESOURCE_CHANGED" => resource_changed(fields),
+        "DAMAGE_ABSORBED" => damage_absorbed(fields),
+        "ABILITY_INTERRUPT" => interrupt(fields),
+        "ABILITY_DISPEL" => dispel(fields),
+        "UNIT_DEATH" => death(fields, DeathKind::Unit),
+        "ALLY_DEATH" => death(fields, DeathKind::Ally),
+        "UNIT_DESTROYED" => Ok(EventBody::UnitDestroyed {
+            unit: guid(fields, 3, "unit")?,
+        }),
+        "RESURRECT" => resurrect(fields),
         "ENCOUNTER_START" => encounter(fields, false),
         "ENCOUNTER_END" => encounter(fields, true),
+        "LOGGING_STARTED" => logging_started(fields),
+        "ZONE_CHANGE" => zone_change(fields),
+        "MAP_CHANGE" => map_change(fields),
+        "DUNGEON_START" => dungeon_start(fields),
+        "DUNGEON_END" => dungeon_end(fields),
+        "MARKER_PLACED" => marker(fields, false),
+        "MARKER_REMOVED" => marker(fields, true),
+        "WORLD_MARKER_PLACED" => world_marker(fields, false),
+        "WORLD_MARKER_REMOVED" => world_marker(fields, true),
         "COMBATANT_INFO" => combatant_info(fields),
+        // Vestigial: damage-shaped but safe to drop, so it is never folded.
+        "EVENT_INVALID" => Ok(EventBody::Invalid),
         other => Ok(EventBody::Unknown {
             raw_type: other.to_string(),
         }),
@@ -222,6 +244,125 @@ fn combatant_info(fields: &[&str]) -> Result<EventBody, ParseError> {
     }))
 }
 
+/// `DAMAGE_ABSORBED` (14 fields): caster-first (f3/f4 shield caster, f5/f6 shielded).
+fn damage_absorbed(fields: &[&str]) -> Result<EventBody, ParseError> {
+    Ok(EventBody::DamageAbsorbed(DamageAbsorbed {
+        shield_caster: guid(fields, 3, "shield caster")?,
+        shielded: guid(fields, 5, "shielded")?,
+        shield_effect_id: number(fields, 7, "shield effect")?,
+        absorbed: number(fields, 9, "absorbed")?,
+        attacker: guid(fields, 10, "attacker")?,
+        attacking_ability_id: number(fields, 12, "attacking ability")?,
+    }))
+}
+
+/// `ABILITY_INTERRUPT` (10 fields).
+fn interrupt(fields: &[&str]) -> Result<EventBody, ParseError> {
+    Ok(EventBody::Interrupt(Interrupt {
+        interrupter: guid(fields, 3, "interrupter")?,
+        victim: guid(fields, 5, "victim")?,
+        interrupting_ability_id: number(fields, 7, "interrupting ability")?,
+        interrupted_ability_id: number(fields, 9, "interrupted ability")?,
+    }))
+}
+
+/// `ABILITY_DISPEL` (12 fields).
+fn dispel(fields: &[&str]) -> Result<EventBody, ParseError> {
+    Ok(EventBody::Dispel(Dispel {
+        dispeller: guid(fields, 3, "dispeller")?,
+        target: guid(fields, 5, "target")?,
+        dispel_ability_id: number(fields, 7, "dispel ability")?,
+        removed_effect_id: number(fields, 9, "removed effect")?,
+        remaining_seconds: number(fields, 11, "remaining")?,
+        polarity: parse_polarity(field(fields, 12)?)?,
+    }))
+}
+
+/// `UNIT_DEATH` / `ALLY_DEATH` (10 fields).
+fn death(fields: &[&str], kind: DeathKind) -> Result<EventBody, ParseError> {
+    Ok(EventBody::Death(Death {
+        kind,
+        dead: guid(fields, 3, "dead unit")?,
+        killer: guid(fields, 5, "killer")?,
+        killing_ability_id: number(fields, 7, "killing ability")?,
+    }))
+}
+
+/// `RESURRECT` (9 fields, trailing empty).
+fn resurrect(fields: &[&str]) -> Result<EventBody, ParseError> {
+    Ok(EventBody::Resurrect(Resurrect {
+        resurrecter: guid(fields, 3, "resurrecter")?,
+        target: guid(fields, 5, "target")?,
+        ability_id: number(fields, 7, "ability id")?,
+    }))
+}
+
+/// `LOGGING_STARTED` (5 fields): the game build (f4) is unquoted and contains a space.
+fn logging_started(fields: &[&str]) -> Result<EventBody, ParseError> {
+    Ok(EventBody::LoggingStarted(LoggingStarted {
+        log_format_version: number(fields, 3, "log format version")?,
+        game_build: field(fields, 4)?.to_string(),
+    }))
+}
+
+/// `ZONE_CHANGE` (6 fields).
+fn zone_change(fields: &[&str]) -> Result<EventBody, ParseError> {
+    Ok(EventBody::ZoneChange(ZoneChange {
+        zone_name: unquote(field(fields, 3)?).to_string(),
+        zone_id: number(fields, 4, "zone id")?,
+        difficulty: number(fields, 5, "difficulty")?,
+    }))
+}
+
+/// `MAP_CHANGE` (8 fields); the bounding-box floats are decoded once a consumer needs them.
+fn map_change(fields: &[&str]) -> Result<EventBody, ParseError> {
+    Ok(EventBody::MapChange(MapChange {
+        map_id: number(fields, 3, "map id")?,
+        floor_name: unquote(field(fields, 4)?).to_string(),
+    }))
+}
+
+/// `DUNGEON_START` (9 fields).
+fn dungeon_start(fields: &[&str]) -> Result<EventBody, ParseError> {
+    Ok(EventBody::DungeonStart(DungeonStart {
+        name: unquote(field(fields, 3)?).to_string(),
+        zone_id: number(fields, 4, "zone id")?,
+        key_level: number(fields, 5, "key level")?,
+        modifiers: parse_int_array(field(fields, 6)?, 6)?,
+    }))
+}
+
+/// `DUNGEON_END` (12 fields). A failed/abandoned run logs success=0.
+fn dungeon_end(fields: &[&str]) -> Result<EventBody, ParseError> {
+    Ok(EventBody::DungeonEnd(DungeonEnd {
+        name: unquote(field(fields, 3)?).to_string(),
+        zone_id: number(fields, 4, "zone id")?,
+        key_level: number(fields, 5, "key level")?,
+        success: field(fields, 7)? == "1",
+        duration_ms: number(fields, 8, "duration")?,
+        score: number(fields, 9, "score")?,
+    }))
+}
+
+/// `MARKER_PLACED` / `MARKER_REMOVED` (5 fields).
+fn marker(fields: &[&str], removed: bool) -> Result<EventBody, ParseError> {
+    Ok(EventBody::Marker(Marker {
+        unit: guid(fields, 3, "unit")?,
+        index: number(fields, 5, "marker index")?,
+        removed,
+    }))
+}
+
+/// `WORLD_MARKER_PLACED` / `WORLD_MARKER_REMOVED` (5 fields).
+fn world_marker(fields: &[&str], removed: bool) -> Result<EventBody, ParseError> {
+    Ok(EventBody::WorldMarker(WorldMarker {
+        x: number(fields, 3, "world x")?,
+        y: number(fields, 4, "world y")?,
+        slot: number(fields, 5, "marker slot")?,
+        removed,
+    }))
+}
+
 // --- primitive decoders ---
 
 /// Decode a unit id across the four v8 namespaces. `None` when the namespace or
@@ -305,6 +446,26 @@ fn parse_name_array(s: &str) -> Result<Vec<String>, ParseError> {
         .iter()
         .map(|element| unquote(element.trim()).to_string())
         .collect())
+}
+
+/// A bracketed integer array (`[4,6,8,19]`) → the ids; `[]` yields no ids.
+fn parse_int_array(s: &str, field: usize) -> Result<Vec<u32>, ParseError> {
+    let elements = split_bracket_list(s).ok_or(ParseError::BadField {
+        field,
+        reason: "int array",
+    })?;
+    elements
+        .iter()
+        .map(|element| {
+            element
+                .trim()
+                .parse::<u32>()
+                .map_err(|_| ParseError::BadField {
+                    field,
+                    reason: "int array element",
+                })
+        })
+        .collect()
 }
 
 /// Split a bracketed list (`[a,(b,c),["d","e"]]`) into its top-level element

@@ -192,23 +192,165 @@ pub struct CombatantInfo {
     pub hero_id: u32,
 }
 
+/// A `DAMAGE_ABSORBED` event (14 fields): an absorb credited to a shield. Caster-
+/// first ordering (f3/f4 shield caster, f5/f6 the shielded unit).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct DamageAbsorbed {
+    pub shield_caster: Guid,
+    pub shielded: Guid,
+    pub shield_effect_id: u32,
+    /// f9: amount absorbed (matches the same-ms damage line's absorbed field).
+    pub absorbed: i64,
+    pub attacker: Guid,
+    pub attacking_ability_id: u32,
+}
+
+/// An `ABILITY_INTERRUPT` event (10 fields).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Interrupt {
+    pub interrupter: Guid,
+    pub victim: Guid,
+    pub interrupting_ability_id: u32,
+    pub interrupted_ability_id: u32,
+}
+
+/// An `ABILITY_DISPEL` event (12 fields).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Dispel {
+    pub dispeller: Guid,
+    pub target: Guid,
+    pub dispel_ability_id: u32,
+    pub removed_effect_id: u32,
+    /// f11: the removed effect's remaining duration — can be negative.
+    pub remaining_seconds: f64,
+    pub polarity: Polarity,
+}
+
+/// Which death family: an enemy NPC (`UNIT_DEATH`) or a player (`ALLY_DEATH`).
+/// Same 10-field anatomy.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DeathKind {
+    Unit,
+    Ally,
+}
+
+/// A `UNIT_DEATH` / `ALLY_DEATH` event.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Death {
+    pub kind: DeathKind,
+    pub dead: Guid,
+    pub killer: Guid,
+    pub killing_ability_id: u32,
+}
+
+/// A `RESURRECT` event (9 fields).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Resurrect {
+    pub resurrecter: Guid,
+    pub target: Guid,
+    pub ability_id: u32,
+}
+
+/// A `LOGGING_STARTED` header (5 fields). May be entirely absent from a file, so
+/// nothing may require it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct LoggingStarted {
+    pub log_format_version: u32,
+    pub game_build: String,
+}
+
+/// A `ZONE_CHANGE` event (6 fields).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ZoneChange {
+    pub zone_name: String,
+    pub zone_id: u32,
+    pub difficulty: u32,
+}
+
+/// A `MAP_CHANGE` event (8 fields); the four bounding-box floats are decoded once
+/// a consumer needs them.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct MapChange {
+    pub map_id: u32,
+    pub floor_name: String,
+}
+
+/// A `DUNGEON_START` event (9 fields).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct DungeonStart {
+    pub name: String,
+    pub zone_id: u32,
+    pub key_level: u32,
+    /// f6: modifier/affix ids (empty on a treeless run).
+    pub modifiers: Vec<u32>,
+}
+
+/// A `DUNGEON_END` event (12 fields). An abandoned/failed run logs `success=false`
+/// with an emptied modifier bracket and zero score.
+#[derive(Clone, PartialEq, Debug)]
+pub struct DungeonEnd {
+    pub name: String,
+    pub zone_id: u32,
+    pub key_level: u32,
+    pub success: bool,
+    pub duration_ms: u64,
+    pub score: f64,
+}
+
+/// A `MARKER_PLACED` / `MARKER_REMOVED` event (5 fields): a raid marker on a unit.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Marker {
+    pub unit: Guid,
+    pub index: u32,
+    pub removed: bool,
+}
+
+/// A `WORLD_MARKER_PLACED` / `WORLD_MARKER_REMOVED` event (5 fields): a marker at
+/// a world position.
+#[derive(Clone, PartialEq, Debug)]
+pub struct WorldMarker {
+    pub x: f64,
+    pub y: f64,
+    pub slot: u32,
+    pub removed: bool,
+}
+
 /// One decoded v8 log line: its instant plus a typed body. Unrecognized event
-/// types are surfaced as `Unknown`, never dropped, so a later event-family sweep
-/// can find the long tail.
+/// types are surfaced as `Unknown`, never dropped, so the long tail is visible.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Event {
     pub instant: LogInstant,
     pub body: EventBody,
 }
 
-/// The typed body of a decoded line.
+/// The typed body of a decoded line. Covers the full v8 event catalog; a token
+/// outside it becomes `Unknown` (surfaced, never dropped).
 #[derive(Clone, PartialEq, Debug)]
 pub enum EventBody {
     DamageHeal(DamageHeal),
+    DamageAbsorbed(DamageAbsorbed),
     Cast(Cast),
     Effect(Effect),
     ResourceChange(ResourceChange),
+    Interrupt(Interrupt),
+    Dispel(Dispel),
+    Death(Death),
+    UnitDestroyed {
+        unit: Guid,
+    },
+    Resurrect(Resurrect),
     Encounter(Encounter),
+    LoggingStarted(LoggingStarted),
+    ZoneChange(ZoneChange),
+    MapChange(MapChange),
+    DungeonStart(DungeonStart),
+    DungeonEnd(DungeonEnd),
+    Marker(Marker),
+    WorldMarker(WorldMarker),
     CombatantInfo(CombatantInfo),
-    Unknown { raw_type: String },
+    /// The vestigial `EVENT_INVALID` line — damage-shaped but safe to drop.
+    Invalid,
+    Unknown {
+        raw_type: String,
+    },
 }
