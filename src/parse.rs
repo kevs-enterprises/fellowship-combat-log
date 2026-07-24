@@ -164,6 +164,7 @@ fn cast_common(fields: &[&str], phase: CastPhase) -> Result<Cast, ParseError> {
         ability_id: number(fields, 5, "ability id")?,
         has_target: field(fields, 7)? == "1",
         target: guid(fields, 8, "target")?,
+        resources: parse_resource_tuples(field(fields, 16)?),
     })
 }
 
@@ -475,6 +476,26 @@ fn parse_int_array(s: &str, field: usize) -> Result<Vec<u32>, ParseError> {
                     field,
                     reason: "int array element",
                 })
+        })
+        .collect()
+}
+
+/// A resource-tuple list (`[(2,100.00,100.00),(4,0.00,100.00)]`) → `(type,
+/// current, max)` triples. Lenient: a malformed tuple is skipped, not fatal — the
+/// snapshot is telemetry, not a load-bearing amount.
+fn parse_resource_tuples(s: &str) -> Vec<(u32, f64, f64)> {
+    let Some(elements) = split_bracket_list(s) else {
+        return Vec::new();
+    };
+    elements
+        .iter()
+        .filter_map(|element| {
+            let inner = element.trim().strip_prefix('(')?.strip_suffix(')')?;
+            let mut parts = inner.split(',');
+            let resource_type = parts.next()?.trim().parse().ok()?;
+            let current = parts.next()?.trim().parse().ok()?;
+            let max = parts.next()?.trim().parse().ok()?;
+            Some((resource_type, current, max))
         })
         .collect()
 }

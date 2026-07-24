@@ -112,6 +112,9 @@ pub struct Cast {
     pub ability_id: u32,
     pub has_target: bool,
     pub target: Guid,
+    /// f16: the caster's resource snapshot at cast time — `(type, current, max)`
+    /// tuples (empty when the caster's unit-state carries none).
+    pub resources: Vec<(u32, f64, f64)>,
 }
 
 /// Which effect (aura) lifecycle transition a line records.
