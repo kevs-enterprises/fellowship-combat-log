@@ -9,7 +9,7 @@ use crate::timestamp::LogInstant;
 /// A combat-log unit id. `Player` ids are ephemeral u32s (reassigned per dungeon
 /// instance); `Npc` ids carry a stable creature-template suffix; the
 /// `Environment`/`Unrecognized` namespaces are game content, never anonymized.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Guid {
     Player(u32),
     Npc { spawn: u32, template: u32 },
