@@ -196,6 +196,12 @@ pub struct GearPiece {
     /// The equipped item (`ItemID.*`). Legendaries are marked in the tag itself.
     pub item_id: u32,
     pub item_level: u32,
+    /// Index into the game's rarity list (`Common`…`Legendary`). This is what says how many
+    /// modifier cells the piece has and how many of its stat entries are guaranteed rolls, so
+    /// the payload can't be read correctly without it.
+    pub rarity: u32,
+    /// `(current, max)` temper. Full temper is the operating point a consumer assumes.
+    pub temper: (u32, u32),
     /// `(attribute id, value)` — the piece's fixed slots first, then its rolls. Attribute ids
     /// are engine `AttributeSet` property indices, not gameplay tags.
     pub stats: Vec<(u32, i64)>,

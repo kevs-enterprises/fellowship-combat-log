@@ -285,7 +285,7 @@ fn parse_gear(s: &str) -> Vec<Option<GearPiece>> {
 fn parse_gear_piece(element: &str) -> Option<GearPiece> {
     let inner = element.trim().strip_prefix('(')?.strip_suffix(')')?;
     let parts = split_top_level(inner);
-    // Positions 2..=6 are scalars whose meaning is still unidentified, so they are skipped by
+    // Positions 5 and 6 are scalars whose meaning is still unidentified, so they are skipped by
     // position rather than guessed at. A shorter tuple is a grammar this decoder doesn't know —
     // a later format, or a truncation — and is surfaced as an unreadable slot, not as bare gear.
     if parts.len() < 13 {
@@ -294,6 +294,8 @@ fn parse_gear_piece(element: &str) -> Option<GearPiece> {
     Some(GearPiece {
         item_id: parts[0].trim().parse().ok()?,
         item_level: parts[1].trim().parse().ok()?,
+        rarity: parts[2].trim().parse().ok()?,
+        temper: (parts[3].trim().parse().ok()?, parts[4].trim().parse().ok()?),
         stats: parse_pair_list(parts[7]),
         // An empty set list is the norm (most pieces carry none), so an unreadable one costs
         // the set, never the piece.
