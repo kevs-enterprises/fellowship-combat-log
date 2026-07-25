@@ -255,6 +255,7 @@ fn combatant_info(fields: &[&str]) -> Result<EventBody, ParseError> {
         item_level: number(fields, 8, "item level")?,
         stat_sheet: parse_float_array(field(fields, 9)?, 9)?,
         talents: parse_int_array(field(fields, 10)?, 10)?,
+        gem_power: parse_float_array(optional_field(fields, 11), 11).unwrap_or_default(),
         // Optional by position: a line truncated mid-write still yields its identity anchors,
         // which the sim's PoV resolution depends on. Requiring these would turn a partial
         // final line into a lost recording.

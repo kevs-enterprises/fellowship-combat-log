@@ -237,6 +237,13 @@ pub struct CombatantInfo {
     pub stat_sheet: Vec<f64>,
     /// f10: hero talent picks.
     pub talents: Vec<u32>,
+    /// f11: total gem power per colour, in the game's alphabetical gem order (Amethyst,
+    /// Diamond, Emerald, Ruby, Sapphire, Topaz).
+    ///
+    /// Sockets and attunements both feed this, so with the attunements known from the gear
+    /// array it is what makes a build's socket colours recoverable — the log never states them
+    /// directly.
+    pub gem_power: Vec<f64>,
     /// f12: the equipped pieces, one entry per gear slot in the game's own slot order.
     ///
     /// Slot identity is *positional*, so a piece that fails to decode is `None` in place rather
