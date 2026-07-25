@@ -27,7 +27,9 @@ fn decodes_one_piece_per_gear_slot() {
     let info = first_info();
     assert_eq!(info.gear.len(), 14, "one entry per gear slot");
     assert!(
-        info.gear.iter().all(|p| p.as_ref().is_some_and(|p| p.item_id > 0)),
+        info.gear
+            .iter()
+            .all(|p| p.as_ref().is_some_and(|p| p.item_id > 0)),
         "every slot decodes to an item"
     );
 }
@@ -90,7 +92,12 @@ fn separates_ability_grants_from_traits() {
 #[test]
 fn decodes_gem_attunements() {
     let info = first_info();
-    let gems: Vec<(u32, u32)> = info.gear.iter().flatten().flat_map(|p| p.gems.clone()).collect();
+    let gems: Vec<(u32, u32)> = info
+        .gear
+        .iter()
+        .flatten()
+        .flat_map(|p| p.gems.clone())
+        .collect();
     assert!(!gems.is_empty(), "the fixture socket gems");
     assert!(
         gems.iter().all(|(_, power)| *power == 100),
@@ -119,7 +126,10 @@ fn identifies_the_legendary_by_its_higher_item_level() {
     assert_eq!(odd.len(), 1, "exactly one piece differs");
     let legendary = odd[0];
     assert!(legendary.set_bonus_id.is_none());
-    assert!(legendary.traits.is_empty(), "a legendary holds no modifiers");
+    assert!(
+        legendary.traits.is_empty(),
+        "a legendary holds no modifiers"
+    );
 }
 
 #[test]
@@ -137,7 +147,10 @@ fn keeps_the_latest_snapshot_per_combatant() {
     // A session logs one snapshot per encounter, so the newest must win — a player who re-geared
     // mid-session should import what they finished in, not what they started in.
     let regeared = FIXTURE.replace("(5213,315,", "(5287,315,");
-    assert_ne!(regeared, FIXTURE, "the rewrite must actually change the gear");
+    assert_ne!(
+        regeared, FIXTURE,
+        "the rewrite must actually change the gear"
+    );
     let found = list_combatants(&format!("{FIXTURE}{regeared}"));
     assert_eq!(found.len(), 2, "the same character collapses to one entry");
     let pov = found
