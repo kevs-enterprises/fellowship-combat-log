@@ -186,9 +186,41 @@ pub struct Encounter {
     pub bosses: Vec<String>,
 }
 
-/// A `COMBATANT_INFO` line. The identity anchors plus the build context a sim
-/// reproduces (hero, average item level, the final computed stat sheet, talent
-/// picks) are decoded here; the deeply-nested gear payload stays deferred.
+/// One equipped piece, as a `COMBATANT_INFO` gear entry records it.
+///
+/// Every id here is an engine gameplay-tag index, and each field indexes a *different*
+/// namespace — resolving one against another's catalog silently yields the wrong entity, so
+/// consumers must keep them apart (the id spaces overlap numerically).
+#[derive(Clone, PartialEq, Debug)]
+pub struct GearPiece {
+    /// The equipped item (`ItemID.*`). Legendaries are marked in the tag itself.
+    pub item_id: u32,
+    pub item_level: u32,
+    /// `(attribute id, value)` — the piece's fixed slots first, then its rolls. Attribute ids
+    /// are engine `AttributeSet` property indices, not gameplay tags.
+    pub stats: Vec<(u32, i64)>,
+    /// The set this piece carries (`ItemID.SetBonus.*`); a set activates across two carriers.
+    pub set_bonus_id: Option<u32>,
+    /// `(rank id, rank)` in the per-hero `DynamicItemAbilityRank` namespace — gear-granted
+    /// hero abilities, **not** traits.
+    pub ability_grants: Vec<(u32, u32)>,
+    /// `(trait id, level)` in the `ItemTrait.ID` namespace.
+    pub traits: Vec<(u32, u32)>,
+    /// `(gem colour id, power)` — the piece's attunements (`ItemID.GemType.*`).
+    pub gems: Vec<(u32, u32)>,
+    pub score: f64,
+}
+
+/// One of the neck-trait candidates a combatant was offered, and whether it is chosen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct NeckTraitChoice {
+    pub trait_id: u32,
+    pub selected: bool,
+}
+
+/// A `COMBATANT_INFO` line: the identity anchors, the build context a sim reproduces (hero,
+/// average item level, the final computed stat sheet, talent picks), and the equipped gear a
+/// build can be reconstructed from.
 #[derive(Clone, PartialEq, Debug)]
 pub struct CombatantInfo {
     /// f3: the persistent character ULID (1:1 with character name).
@@ -205,6 +237,21 @@ pub struct CombatantInfo {
     pub stat_sheet: Vec<f64>,
     /// f10: hero talent picks.
     pub talents: Vec<u32>,
+    /// f12: the equipped pieces, one entry per gear slot in the game's own slot order.
+    ///
+    /// Slot identity is *positional*, so a piece that fails to decode is `None` in place rather
+    /// than omitted — dropping it would silently shift every later slot by one and hand back a
+    /// build wearing the wrong gear. `None` is the caller's signal to report an unreadable slot.
+    pub gear: Vec<Option<GearPiece>>,
+    /// f17: `(trait id, rank)` for every trait realized on the build, and the authoritative
+    /// list to read trait levels from.
+    ///
+    /// It is not merely the sum of the per-piece grants: ranks here also reflect contributions
+    /// the gear array doesn't carry, so a trait can appear at a higher rank than its pieces
+    /// alone explain, or with no per-piece source at all.
+    pub trait_ranks: Vec<(u32, u32)>,
+    /// f19: the neck-trait candidates and which are chosen.
+    pub neck_traits: Vec<NeckTraitChoice>,
 }
 
 /// A `DAMAGE_ABSORBED` event (14 fields): an absorb credited to a shield. Caster-

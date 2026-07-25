@@ -10,8 +10,8 @@
 use crate::event::{
     Cast, CastPhase, CombatantInfo, DamageAbsorbed, DamageHeal, DamageHealKind, Death, DeathKind,
     Dispel, DungeonEnd, DungeonStart, Effect, EffectPhase, Encounter, EncounterPhase, Event,
-    EventBody, Guid, Interrupt, LoggingStarted, MapChange, Marker, Polarity, ResourceChange,
-    ResultTier, Resurrect, School, WorldMarker, ZoneChange,
+    EventBody, GearPiece, Guid, Interrupt, LoggingStarted, MapChange, Marker, NeckTraitChoice,
+    Polarity, ResourceChange, ResultTier, Resurrect, School, WorldMarker, ZoneChange,
 };
 use crate::timestamp::parse_instant;
 
@@ -242,8 +242,10 @@ fn encounter(fields: &[&str], has_success: bool) -> Result<EventBody, ParseError
     }))
 }
 
-/// `COMBATANT_INFO` (20 fields) framed at the top level: the deeply-nested stat/
-/// gear/talent payload and the catalog name-join are decoded by a later slice.
+/// `COMBATANT_INFO` (20 fields): the identity anchors, the sim-reproducible build context, and
+/// the equipped gear. The nested payloads are lenient — a malformed piece is skipped rather
+/// than failing the line, since one unrecognised entry should never cost the whole snapshot.
+/// The catalog name-join stays out of the parser; ids cross the boundary raw.
 fn combatant_info(fields: &[&str]) -> Result<EventBody, ParseError> {
     Ok(EventBody::CombatantInfo(CombatantInfo {
         ulid: field(fields, 3)?.to_string(),
@@ -253,7 +255,126 @@ fn combatant_info(fields: &[&str]) -> Result<EventBody, ParseError> {
         item_level: number(fields, 8, "item level")?,
         stat_sheet: parse_float_array(field(fields, 9)?, 9)?,
         talents: parse_int_array(field(fields, 10)?, 10)?,
+        // Optional by position: a line truncated mid-write still yields its identity anchors,
+        // which the sim's PoV resolution depends on. Requiring these would turn a partial
+        // final line into a lost recording.
+        gear: parse_gear(optional_field(fields, 12)),
+        trait_ranks: parse_pair_list(optional_field(fields, 17)),
+        neck_traits: parse_neck_traits(optional_field(fields, 19)),
     }))
+}
+
+/// A field that may be absent on a truncated line — missing reads as empty, never an error.
+fn optional_field<'a>(fields: &[&'a str], n: usize) -> &'a str {
+    fields.get(n - 1).copied().unwrap_or("")
+}
+
+/// The gear array (f12): one tuple per equipped slot, in the game's slot order.
+///
+/// Each tuple is `(item, ilvl, …, stats, set, abilities, traits, gems, score)`. Four of its
+/// middle scalars are still unidentified and are skipped by position rather than guessed at;
+/// only the fields whose meaning is confirmed are surfaced.
+fn parse_gear(s: &str) -> Vec<Option<GearPiece>> {
+    let Some(elements) = split_bracket_list(s) else {
+        return Vec::new();
+    };
+    elements.iter().map(|e| parse_gear_piece(e)).collect()
+}
+
+fn parse_gear_piece(element: &str) -> Option<GearPiece> {
+    let inner = element.trim().strip_prefix('(')?.strip_suffix(')')?;
+    let parts = split_top_level(inner);
+    // Positions 2..=6 are scalars whose meaning is still unidentified, so they are skipped by
+    // position rather than guessed at. A shorter tuple is a grammar this decoder doesn't know —
+    // a later format, or a truncation — and is surfaced as an unreadable slot, not as bare gear.
+    if parts.len() < 13 {
+        return None;
+    }
+    Some(GearPiece {
+        item_id: parts[0].trim().parse().ok()?,
+        item_level: parts[1].trim().parse().ok()?,
+        stats: parse_pair_list(parts[7]),
+        // An empty set list is the norm (most pieces carry none), so an unreadable one costs
+        // the set, never the piece.
+        set_bonus_id: parse_int_list(parts[8]).first().copied(),
+        ability_grants: parse_pair_list(parts[9]),
+        traits: parse_pair_list(parts[10]),
+        gems: parse_pair_list(parts[11]),
+        score: parts[12].trim().parse().ok()?,
+    })
+}
+
+/// A bracketed int list (`[686]`), lenient — an unreadable entry is skipped, not fatal.
+fn parse_int_list(s: &str) -> Vec<u32> {
+    split_bracket_list(s.trim())
+        .map(|elements| {
+            elements
+                .iter()
+                .filter_map(|e| e.trim().parse().ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A list of `(id, value)` tuples (`[(51,4),(42,4)]`). Lenient: a malformed tuple is skipped,
+/// because one unreadable entry should never cost the rest of the list.
+fn parse_pair_list<T: std::str::FromStr>(s: &str) -> Vec<(u32, T)> {
+    let Some(elements) = split_bracket_list(s.trim()) else {
+        return Vec::new();
+    };
+    elements
+        .iter()
+        .filter_map(|element| {
+            let inner = element.trim().strip_prefix('(')?.strip_suffix(')')?;
+            let mut parts = inner.split(',');
+            let id = parts.next()?.trim().parse().ok()?;
+            let value = parts.next()?.trim().parse().ok()?;
+            Some((id, value))
+        })
+        .collect()
+}
+
+/// The neck-trait section (f19): `(trait, 1, selected)` triples — the candidates offered, with
+/// the chosen ones flagged.
+fn parse_neck_traits(s: &str) -> Vec<NeckTraitChoice> {
+    let Some(elements) = split_bracket_list(s.trim()) else {
+        return Vec::new();
+    };
+    elements
+        .iter()
+        .filter_map(|element| {
+            let inner = element.trim().strip_prefix('(')?.strip_suffix(')')?;
+            let mut parts = inner.split(',');
+            let trait_id = parts.next()?.trim().parse().ok()?;
+            let _offered = parts.next()?;
+            let selected = parts.next()?.trim() == "1";
+            Some(NeckTraitChoice { trait_id, selected })
+        })
+        .collect()
+}
+
+/// Split a group body on its top-level commas, respecting quoted strings and nested
+/// brackets/parens so a comma inside either never splits. The shared rule behind both the
+/// bracketed lists and the parenthesised tuples.
+fn split_top_level(inner: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0i32;
+    let mut in_quote = false;
+    let mut start = 0;
+    for (i, byte) in inner.bytes().enumerate() {
+        match byte {
+            b'"' => in_quote = !in_quote,
+            b'[' | b'(' if !in_quote => depth += 1,
+            b']' | b')' if !in_quote => depth -= 1,
+            b',' if !in_quote && depth == 0 => {
+                parts.push(&inner[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&inner[start..]);
+    parts
 }
 
 /// `DAMAGE_ABSORBED` (14 fields): caster-first (f3/f4 shield caster, f5/f6 shielded).
@@ -530,22 +651,5 @@ fn split_bracket_list(s: &str) -> Option<Vec<&str>> {
     if inner.is_empty() {
         return Some(Vec::new());
     }
-    let mut elements = Vec::new();
-    let mut depth = 0i32;
-    let mut in_quote = false;
-    let mut start = 0;
-    for (i, byte) in inner.bytes().enumerate() {
-        match byte {
-            b'"' => in_quote = !in_quote,
-            b'[' | b'(' if !in_quote => depth += 1,
-            b']' | b')' if !in_quote => depth -= 1,
-            b',' if !in_quote && depth == 0 => {
-                elements.push(&inner[start..i]);
-                start = i + 1;
-            }
-            _ => {}
-        }
-    }
-    elements.push(&inner[start..]);
-    Some(elements)
+    Some(split_top_level(inner))
 }
