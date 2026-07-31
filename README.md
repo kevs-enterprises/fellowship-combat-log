@@ -37,10 +37,9 @@ because a live recording can be truncated mid-write and one bad line must not co
 
 ## Scope
 
-Decoding only. Aggregation, validation grading, anonymization, encounter segmentation, and
-resolving the game's numeric ids against catalogs all live in the consumer — those are
-policy decisions an application makes, and folding them in here would narrow what the crate is
-good for.
+Decoding only. Aggregation, validation, anonymization, encounter segmentation, and resolving the
+game's numeric ids against a catalog all live in the consumer — each is a policy decision an
+application makes, and folding them in here would narrow what the crate is good for.
 
 ## Licence
 

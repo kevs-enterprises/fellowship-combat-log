@@ -1,8 +1,7 @@
 //! The typed event model a parsed v8 line decodes into. Data types only — the
-//! decoding lives in `parse`. Field maps follow the v8 combat-log format
-//! reference. Only the fields downstream consumers need so far are decoded; the
-//! source/target unit-state blocks and the deeply-nested COMBATANT_INFO payload
-//! are decoded by later slices.
+//! decoding lives in `parse`. Field maps follow the v8 combat-log format. Not
+//! every field is decoded yet: the source/target unit-state blocks and the
+//! deeply-nested parts of the `COMBATANT_INFO` payload are still raw.
 
 use crate::timestamp::LogInstant;
 
@@ -200,7 +199,7 @@ pub struct GearPiece {
     /// modifier cells the piece has and how many of its stat entries are guaranteed rolls, so
     /// the payload can't be read correctly without it.
     pub rarity: u32,
-    /// `(current, max)` temper. Full temper is the operating point a consumer assumes.
+    /// `(current, max)` temper.
     pub temper: (u32, u32),
     /// `(attribute id, value)` — the piece's fixed slots first, then its rolls. Attribute ids
     /// are engine `AttributeSet` property indices, not gameplay tags.
@@ -224,7 +223,7 @@ pub struct NeckTraitChoice {
     pub selected: bool,
 }
 
-/// A `COMBATANT_INFO` line: the identity anchors, the build context a sim reproduces (hero,
+/// A `COMBATANT_INFO` line: the identity anchors, the build context it records (hero,
 /// average item level, the final computed stat sheet, talent picks), and the equipped gear a
 /// build can be reconstructed from.
 #[derive(Clone, PartialEq, Debug)]
@@ -239,7 +238,7 @@ pub struct CombatantInfo {
     pub hero_id: u32,
     /// f8: average item level (the mean of the 14 gear ilvls).
     pub item_level: f64,
-    /// f9: the final computed stat sheet — post-DR, post-set-bonus, sim-consumable.
+    /// f9: the final computed stat sheet — post-diminishing-returns, post-set-bonus.
     pub stat_sheet: Vec<f64>,
     /// f10: hero talent picks.
     pub talents: Vec<u32>,

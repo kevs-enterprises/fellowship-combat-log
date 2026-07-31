@@ -1,8 +1,8 @@
-//! v8 combat-log line parsing (see the v8 combat-log format reference). Total
-//! over its input — a malformed, short, or unrecognized line yields an
-//! `Unknown` body or a `ParseError`, never a panic — because the corpus contains
-//! routine quirks (u32-wrapped HP, negative amplification) that must decode
-//! without choking even though this layer doesn't yet interpret them. Naive
+//! v8 combat-log line parsing. Total over its input — a malformed, short, or
+//! unrecognized line yields an `Unknown` body or a `ParseError`, never a panic —
+//! because real logs contain routine quirks (u32-wrapped HP, negative
+//! amplification) that must decode without choking even though this layer does
+//! not interpret them. Naive
 //! pipe-splitting the whole line is always safe (no `|` inside quoted strings or
 //! bracketed lists); splitting a *bracketed* field on commas is never safe, so
 //! bracket contents go through a nesting-aware tokenizer.
@@ -126,7 +126,7 @@ fn guid(fields: &[&str], n: usize, reason: &'static str) -> Result<Guid, ParseEr
     parse_guid(field(fields, n)?).ok_or(ParseError::BadField { field: n, reason })
 }
 
-// --- family decoders (only the fields downstream needs; unit-state deferred) ---
+// --- family decoders (only the fields decoded so far; unit-state deferred) ---
 
 /// Shared 30-field damage/heal anatomy. The source/target unit-state blocks
 /// (f17–30) are decoded once a consumer reads them.
@@ -242,10 +242,10 @@ fn encounter(fields: &[&str], has_success: bool) -> Result<EventBody, ParseError
     }))
 }
 
-/// `COMBATANT_INFO` (20 fields): the identity anchors, the sim-reproducible build context, and
+/// `COMBATANT_INFO` (20 fields): the identity anchors, the build context it records, and
 /// the equipped gear. The nested payloads are lenient — a malformed piece is skipped rather
 /// than failing the line, since one unrecognised entry should never cost the whole snapshot.
-/// The catalog name-join stays out of the parser; ids cross the boundary raw.
+/// Resolving an id against a catalog stays out of the parser; ids cross raw.
 fn combatant_info(fields: &[&str]) -> Result<EventBody, ParseError> {
     Ok(EventBody::CombatantInfo(CombatantInfo {
         ulid: field(fields, 3)?.to_string(),
@@ -257,7 +257,7 @@ fn combatant_info(fields: &[&str]) -> Result<EventBody, ParseError> {
         talents: parse_int_array(field(fields, 10)?, 10)?,
         gem_power: parse_float_array(optional_field(fields, 11), 11).unwrap_or_default(),
         // Optional by position: a line truncated mid-write still yields its identity anchors,
-        // which the sim's PoV resolution depends on. Requiring these would turn a partial
+        // which point-of-view resolution depends on. Requiring these would turn a partial
         // final line into a lost recording.
         gear: parse_gear(optional_field(fields, 12)),
         trait_ranks: parse_pair_list(optional_field(fields, 17)),

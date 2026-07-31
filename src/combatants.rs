@@ -1,17 +1,17 @@
 //! Listing the combatants in a log and their equipped gear.
 //!
-//! This is the gear-import path, deliberately separate from the extract pipeline: it needs only
-//! the `COMBATANT_INFO` lines, so it skips the per-event fold entirely and touches nothing else
-//! in a multi-gigabyte session log. That difference is the whole point — a player waiting on a
-//! file picker cannot wait for a full aggregation pass.
+//! This scan is deliberately cheap: it needs only the `COMBATANT_INFO` lines, so it skips any
+//! per-event fold and touches nothing else in a session log that may run to gigabytes. That
+//! difference is the whole point — a caller answering a user interaction cannot wait for a full
+//! aggregation pass.
 //!
-//! Ids cross this boundary raw. Resolving them against a catalog is the caller's job, because
-//! the catalog lives on the TypeScript side and the id spaces are per-namespace.
+//! Ids cross this boundary raw. Resolving them against a catalog is the caller's job, since the
+//! id spaces are per-namespace and the catalog is the consumer's to own.
 
 use crate::event::{CombatantInfo, EventBody};
 use crate::parse::parse_line;
 
-/// One combatant found in a log, with the gear snapshot the import reconstructs from.
+/// One combatant found in a log, with the gear snapshot a caller reconstructs from.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Combatant {
     /// Stable across a session — the same character re-appears under this ulid every encounter.

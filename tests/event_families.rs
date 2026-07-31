@@ -1,7 +1,7 @@
 //! Per-family parse coverage: one synthetic fixture per core v8 event family
 //! through the public parse surface, asserting the typed body and key field
-//! mapping — never parser internals. All fixtures are committed synthetic
-//! snippets; nothing reads `unpublished logs`.
+//! mapping — never parser internals. Every fixture here is a committed synthetic
+//! snippet.
 
 use fellowship_combat_log::event::{
     CastPhase, DamageHealKind, EffectPhase, EncounterPhase, EventBody, Guid, Polarity, ResultTier,

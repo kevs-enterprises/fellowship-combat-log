@@ -1,11 +1,9 @@
-//! Gear decode from `COMBATANT_INFO` (#179): the equipped pieces, the realized trait ranks,
-//! and the neck-trait picks a build is reconstructed from, plus the combatant listing the
-//! import's picker is built on.
+//! Gear decode from `COMBATANT_INFO`: the equipped pieces, the realized trait ranks, and the
+//! neck-trait picks, plus the combatant listing a caller selects from.
 //!
-//! The fixture is a redacted capture, not an invented one: real v8 structure and real game ids
-//! — so the decode is exercised against the shape the game actually writes — with every
-//! identity field (name, player id, ULID) replaced. Like every fixture here it is committed;
-//! nothing reads `unpublished logs`.
+//! The fixture keeps real v8 structure and real game ids, so the decode is exercised against
+//! the shape the game actually writes, with every identity field — name, player id, ULID —
+//! replaced by a placeholder.
 
 use fellowship_combat_log::combatants::list_combatants;
 use fellowship_combat_log::event::EventBody;
@@ -185,7 +183,7 @@ fn an_unreadable_piece_holds_its_slot_rather_than_shifting_the_rest() {
 
 #[test]
 fn a_line_truncated_before_the_gear_still_yields_its_identity() {
-    // The sim resolves its point-of-view from these lines, so a recording truncated mid-write
+    // A caller resolves its point of view from these lines, so a recording truncated mid-write
     // must not cost the whole extract.
     let full = FIXTURE.lines().next().expect("a line");
     let truncated: String = full.split('|').take(11).collect::<Vec<_>>().join("|");

@@ -1,8 +1,7 @@
 //! Full v8 event-catalog coverage: a miniature multi-family log with one line per
 //! event type parses end-to-end into the ordered event stream — every line to its
 //! typed body (never `Unknown`), and an out-of-catalog token surfaces as
-//! `Unknown`. All fixtures are committed synthetic snippets; nothing reads
-//! `unpublished logs`.
+//! `Unknown`. Every fixture here is a committed synthetic snippet.
 
 use fellowship_combat_log::event::{DeathKind, Event, EventBody, Guid};
 use fellowship_combat_log::parse::parse_line;

@@ -1,16 +1,3 @@
-# Self-contained CI. Sibling repositories call the shared workflow in
-# a shared workflow repository instead, and this one tried to; that call failed at
-# startup with zero jobs, which is how GitHub reports a reusable workflow it
-# cannot resolve for the calling repository — a startup failure cancels the whole
-# run, so even the unrelated wasm32 job never began. The workflow file itself
-# parses, and the same call succeeds from another repository, so what differs is
-# this repository's access to it rather than the callee.
-#
-# To adopt the shared workflow later, grant this repository access to the org
-# `.github` repository's Actions (Settings -> Actions -> Access), then replace the
-# three jobs below with `uses: a shared workflow repository/.github/workflows/ci.yml@main`.
-# Keep the wasm32 job either way — the shared workflow builds for the host target
-# only.
 name: CI
 
 on:
@@ -37,10 +24,9 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
 
-  # This crate's whole reason for being dependency-free is that it also compiles
-  # to wasm32, so that promise needs a check rather than a convention: a
-  # native-only dependency or a stray `std::fs` would otherwise only surface in a
-  # browser consumer.
+  # Being dependency-free and wasm32-clean is a promise the crate makes, so it gets
+  # a check rather than a convention: a native-only dependency or a stray `std::fs`
+  # would otherwise only surface in a browser consumer.
   wasm32:
     name: wasm32 build
     runs-on: ubuntu-24.04
@@ -50,10 +36,9 @@ jobs:
         run: rustup target add wasm32-unknown-unknown
       - run: cargo build --lib --target wasm32-unknown-unknown
 
-  # One stable context meaning "the whole verification graph passed", which is what
-  # a branch-protection ruleset should match, so adding a job later does not mean
-  # re-pointing branch protection. Renaming this job detaches protection silently,
-  # because the ruleset matches the job id.
+  # One stable context meaning "everything passed", so a branch-protection rule can
+  # match a single name and adding a job later does not mean re-pointing it.
+  # Renaming this job detaches protection silently, because the rule matches the id.
   combat-log-gate:
     needs: [rust, wasm32]
     if: always()
