@@ -1,0 +1,65 @@
+# Thin caller stub — the real CI lives in a shared workflow repository
+# (.github/workflows/ci.yml), the unified dialect-aware workflow shared by every
+# template-gh descendant. It detects which stacks a repo actually carries
+# (Cargo.toml / package.json) and runs only the matching jobs; this repo carries
+# Rust alone, so only the Rust lane runs and the stub needs no tuning for that.
+# This stub owns only what must key on this repo: the triggers, the per-ref
+# concurrency group, and the permissions ceiling.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: a shared workflow repository/.github/workflows/ci.yml@main
+    secrets: inherit
+
+  # The shared workflow builds and tests for the host target. This crate's whole
+  # reason for being dependency-free is that it also compiles to wasm32, so that
+  # promise needs a check rather than a convention — a native-only dependency or
+  # a stray `std::fs` would otherwise only surface in a browser consumer.
+  wasm32:
+    name: wasm32 build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add the wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Build the library for wasm32
+        run: cargo build --lib --target wasm32-unknown-unknown
+
+  # One stable context meaning "the whole verification graph passed", which is what
+  # a branch-protection ruleset should match. `ci` is a reusable-workflow call that
+  # reports several separate contexts, some of which skip by design; requiring the
+  # fan-out would mean enumerating contexts that drift. Renaming this job detaches
+  # branch protection silently, because the ruleset matches the job id.
+  combat-log-gate:
+    needs: [ci, wasm32]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Assert the verification graph succeeded
+        env:
+          CI_RESULT: ${{ needs.ci.result }}
+          WASM_RESULT: ${{ needs.wasm32.result }}
+        run: |
+          set -euo pipefail
+          if [ "$CI_RESULT" != "success" ]; then
+            printf 'the ci verification graph concluded %s\n' "$CI_RESULT" >&2
+            exit 1
+          fi
+          if [ "$WASM_RESULT" != "success" ]; then
+            printf 'the wasm32 build concluded %s\n' "$WASM_RESULT" >&2
+            exit 1
+          fi
+          printf 'ci and wasm32 succeeded\n'

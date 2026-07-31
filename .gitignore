@@ -1,0 +1,4 @@
+/target
+
+# A library pins nothing for its consumers, so the lockfile is not committed.
+Cargo.lock
