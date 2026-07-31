@@ -1,6 +1,6 @@
 # fellowship-combat-log
 
-Decodes [Fellowship](https://www.fellowship-game.com/)'s Advanced Combat Log into typed Rust
+Decodes [Fellowship](https://coffeestain.com/game/fellowship/)'s Advanced Combat Log into typed Rust
 events. Log text in, events out — nothing else.
 
 ```rust
