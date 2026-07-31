@@ -4,7 +4,7 @@
 //! snippets; nothing reads `unpublished logs`.
 
 use fellowship_combat_log::event::{
-    CastPhase, DamageHealKind, EffectPhase, EncounterPhase, EventBody, Guid, Polarity,
+    CastPhase, DamageHealKind, EffectPhase, EncounterPhase, EventBody, Guid, Polarity, ResultTier,
 };
 use fellowship_combat_log::parse::parse_line;
 
@@ -36,7 +36,7 @@ fn damage_family() {
     assert_eq!(damage.absorbed, -5); // negative absorb = amplification
     assert_eq!(damage.overkill, -1); // -1 = none
     assert_eq!(damage.raw, 118);
-    assert_eq!(damage.result, fellowship_combat_log::event::ResultTier::CriticalStrike);
+    assert_eq!(damage.result, ResultTier::CriticalStrike);
 }
 
 #[test]
