@@ -1,0 +1,16 @@
+[package]
+name = "fellowship-combat-log"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Decoder for Fellowship's Advanced Combat Log: log text in, typed events out."
+repository = "https://github.com/kevs-enterprises/fellowship-combat-log"
+rust-version = "1.85"
+keywords = ["fellowship", "combat-log", "parser", "gamedev"]
+categories = ["parser-implementations", "game-development"]
+
+# Deliberately dependency-free. The four modules here decode log text into typed
+# events and nothing else, so they need no serde — that is the seam this crate
+# exists to hold. Serializing a decoded run is a consumer's concern; adding a
+# dependency here would erode the boundary that makes the crate reusable.
+[dependencies]

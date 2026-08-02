@@ -20,13 +20,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install the toolchain
         run: rustup component add rustfmt clippy
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
+      - run: cargo fmt --check -p fellowship-combat-log
+      - run: cargo clippy -p fellowship-combat-log --all-targets -- -D warnings
+      - run: cargo test -p fellowship-combat-log
 
   # Being dependency-free and wasm32-clean is a promise the crate makes, so it gets
   # a check rather than a convention: a native-only dependency or a stray `std::fs`
-  # would otherwise only surface in a browser consumer.
+  # would otherwise only surface in a browser consumer. Scoped to the core package —
+  # the python binding crate (pyo3) doesn't target wasm32 at all.
   wasm32:
     name: wasm32 build
     runs-on: ubuntu-24.04
@@ -34,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Add the wasm32 target
         run: rustup target add wasm32-unknown-unknown
-      - run: cargo build --lib --target wasm32-unknown-unknown
+      - run: cargo build --lib -p fellowship-combat-log --target wasm32-unknown-unknown
 
   # One stable context meaning "everything passed", so a branch-protection rule can
   # match a single name and adding a job later does not mean re-pointing it.
