@@ -1,0 +1,26 @@
+# Root Cargo.toml doesn't list `python` as a workspace member yet (see its own
+# comment: that lands once this crate is real). Until then, an empty
+# `[workspace]` table here makes this its own workspace root so it builds
+# standalone instead of erroring as an orphaned nested package. Once the root
+# adds `python` to `members`, delete this table (a member can't also declare
+# its own workspace).
+[workspace]
+
+[package]
+name = "fellowship-combat-log-py"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "PyO3 bindings for fellowship-combat-log, packaged as a Python extension module."
+repository = "https://github.com/kevs-enterprises/fellowship-combat-log"
+publish = false
+
+[lib]
+name = "fellowship_combat_log"
+crate-type = ["cdylib"]
+
+[dependencies]
+fellowship-combat-log = { path = "../rust" }
+pyo3 = { version = "0.29.0", features = ["extension-module"] }
+pythonize = "0.29.0"
+serde = { version = "1.0.229", features = ["derive"] }
