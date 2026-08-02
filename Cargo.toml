@@ -4,11 +4,10 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "Decoder for Fellowship's Advanced Combat Log: log text in, typed events out."
-repository = "https://github.com/kevs-enterprises/fellowship-combat-log-rs"
-rust-version = "1.94"
+repository = "https://github.com/kevs-enterprises/fellowship-combat-log"
+rust-version = "1.85"
 keywords = ["fellowship", "combat-log", "parser", "gamedev"]
 categories = ["parser-implementations", "game-development"]
-publish = false
 
 # Deliberately dependency-free. The four modules here decode log text into typed
 # events and nothing else, so they need no serde — that is the seam this crate
