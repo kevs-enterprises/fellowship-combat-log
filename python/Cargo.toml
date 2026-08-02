@@ -1,0 +1,15 @@
+[package]
+name = "fellowship-combat-log-py"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "PyO3 bindings for fellowship-combat-log, packaged as a Python extension module."
+repository = "https://github.com/kevs-enterprises/fellowship-combat-log"
+publish = false
+
+[lib]
+name = "fellowship_combat_log"
+crate-type = ["cdylib"]
+
+[dependencies]
+fellowship-combat-log = { path = "../rust" }
