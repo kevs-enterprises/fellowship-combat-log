@@ -70,12 +70,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - working-directory: python
-        run: pip install maturin pytest
-      - working-directory: python
-        run: maturin develop
-      - working-directory: python
-        run: pytest -v
+      # maturin develop requires an active virtualenv (it refuses to install into the system
+      # interpreter); one shell step so the activation persists across the commands that need it.
+      - name: Build and test
+        working-directory: python
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install maturin pytest
+          maturin develop
+          pytest -v
 
   # One stable context meaning "everything passed", so a branch-protection rule can
   # match a single name and adding a job later does not mean re-pointing it.
