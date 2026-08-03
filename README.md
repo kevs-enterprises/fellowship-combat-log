@@ -1,45 +1,33 @@
 # fellowship-combat-log
 
-Decodes [Fellowship](https://coffeestain.com/game/fellowship/)'s Advanced Combat Log into typed Rust
+Decodes [Fellowship](https://coffeestain.com/game/fellowship/)'s Advanced Combat Log into typed
 events. Log text in, events out — nothing else.
 
-```rust
-use fellowship_combat_log::parse::parse_line;
+The decoding logic lives once, in Rust, and every other language binds to it rather than
+reimplementing it:
 
-for (index, line) in log_text.lines().enumerate() {
-    match parse_line(index as u32 + 1, line) {
-        Ok(event) => { /* event.instant, event.body */ }
-        Err(error) => { /* a truncated or unknown line, never a panic */ }
-    }
-}
-```
+| Package | Language | What it is |
+| --- | --- | --- |
+| [`rust/`](rust) | Rust | The decoder itself: dependency-free, wasm32-compatible. [crates.io](https://crates.io/crates/fellowship-combat-log) |
+| [`typescript/`](typescript) | TypeScript/JS | wasm-bindgen bindings over the same decoder, for browser and Node consumers. |
+| [`python/`](python) | Python | PyO3 bindings over the same decoder, built as a native extension module. |
 
-`combatants::list_combatants` scans a whole log for every character it mentions, each with their
-latest equipped-gear snapshot.
+## Why one decoder, not three
 
-## What it is, and what it deliberately is not
+`rust/` is the only place log-format knowledge lives. Its four modules — `timestamp → event →
+parse → combatants` — decode a line into a typed event and nothing else, with no dependencies at
+all, so it stays trivially auditable against the format and safe to embed anywhere, including
+`wasm32-unknown-unknown`.
 
-The crate is four modules forming a closed chain — `timestamp → event → parse → combatants` — with
-no edge leaving the set. That closure is the point: it can be consumed on its own, without
-inheriting anybody's application.
-
-It has **no dependencies**, not even serde. Serializing a decoded run is a consumer's concern.
-
-It is **wasm32-compatible**: no `std::fs`, no `SystemTime`, no native-only crates. All I/O belongs
-to the caller, which is what lets the same decoder run in a browser and in a native tool.
-
-`parse_line` is line-oriented, so tailing a log live needs no different API — only a caller that
-owns the file handle.
-
-Unknown event types are surfaced as `EventBody::Unknown`, never dropped, so a game update that
-adds an event does not silently lose data. Malformed lines return an error rather than panicking,
-because a live recording can be truncated mid-write and one bad line must not cost the whole read.
+`typescript/` and `python/` are thin bindings: each depends on `rust/` by path, compiles it to
+its own target (wasm for TypeScript, a native extension for Python), and exposes the same typed
+event model idiomatically in its host language. Neither reimplements any parsing.
 
 ## Scope
 
-Decoding only. Aggregation, validation, anonymization, encounter segmentation, and resolving the
-game's numeric ids against a catalog all live in the consumer — each is a policy decision an
-application makes, and folding them in here would narrow what the crate is good for.
+Decoding only, in every language. Aggregation, validation, anonymization, encounter segmentation,
+and resolving the game's numeric ids against a catalog all live in the consumer — see each
+package's own README for its language-specific API.
 
 ## Licence
 

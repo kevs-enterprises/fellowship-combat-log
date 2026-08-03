@@ -1,0 +1,14 @@
+[package]
+name = "fellowship-combat-log-wasm"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "wasm-bindgen bindings for fellowship-combat-log, packaged as a TypeScript/JS npm module."
+repository = "https://github.com/kevs-enterprises/fellowship-combat-log"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fellowship-combat-log = { path = "../rust" }

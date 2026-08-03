@@ -1,6 +1,4 @@
 /target
-.DS_Store
-*.swp
 
 # A library pins nothing for its consumers, so the lockfile is not committed.
 Cargo.lock
