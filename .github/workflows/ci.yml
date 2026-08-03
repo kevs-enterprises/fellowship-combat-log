@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: fmt, clippy, test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the toolchain
+        run: rustup component add rustfmt clippy
+      - run: cargo fmt --check -p fellowship-combat-log
+      - run: cargo clippy -p fellowship-combat-log --all-targets -- -D warnings
+      - run: cargo test -p fellowship-combat-log
+
+  # Being dependency-free and wasm32-clean is a promise the crate makes, so it gets
+  # a check rather than a convention: a native-only dependency or a stray `std::fs`
+  # would otherwise only surface in a browser consumer. Scoped to the core package —
+  # the python binding crate (pyo3) doesn't target wasm32 at all.
+  wasm32:
+    name: wasm32 build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add the wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - run: cargo build --lib -p fellowship-combat-log --target wasm32-unknown-unknown
+
+  typescript:
+    name: typescript build, test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the toolchain
+        run: |
+          rustup component add rustfmt clippy
+          rustup target add wasm32-unknown-unknown
+      - run: cargo fmt --check -p fellowship-combat-log-wasm
+      - run: cargo clippy -p fellowship-combat-log-wasm --all-targets -- -D warnings
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+      - working-directory: typescript
+        run: npm install
+      - working-directory: typescript
+        run: npm test
+
+  python:
+    name: python build, test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the toolchain
+        run: rustup component add rustfmt clippy
+      - run: cargo fmt --check -p fellowship-combat-log-py
+      - run: cargo clippy -p fellowship-combat-log-py --all-targets -- -D warnings
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - working-directory: python
+        run: pip install maturin pytest
+      - working-directory: python
+        run: maturin develop
+      - working-directory: python
+        run: pytest -v
+
+  # One stable context meaning "everything passed", so a branch-protection rule can
+  # match a single name and adding a job later does not mean re-pointing it.
+  # Renaming this job detaches protection silently, because the rule matches the id.
+  combat-log-gate:
+    needs: [rust, wasm32, typescript, python]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Assert the verification graph succeeded
+        env:
+          RUST_RESULT: ${{ needs.rust.result }}
+          WASM_RESULT: ${{ needs.wasm32.result }}
+          TS_RESULT: ${{ needs.typescript.result }}
+          PY_RESULT: ${{ needs.python.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+          if [ "$RUST_RESULT" != "success" ]; then
+            printf 'the rust lane concluded %s\n' "$RUST_RESULT" >&2
+            failed=1
+          fi
+          if [ "$WASM_RESULT" != "success" ]; then
+            printf 'the wasm32 build concluded %s\n' "$WASM_RESULT" >&2
+            failed=1
+          fi
+          if [ "$TS_RESULT" != "success" ]; then
+            printf 'the typescript lane concluded %s\n' "$TS_RESULT" >&2
+            failed=1
+          fi
+          if [ "$PY_RESULT" != "success" ]; then
+            printf 'the python lane concluded %s\n' "$PY_RESULT" >&2
+            failed=1
+          fi
+          test "$failed" -eq 0
+          printf 'rust, wasm32, typescript, and python all succeeded\n'
