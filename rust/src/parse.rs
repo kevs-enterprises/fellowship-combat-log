@@ -100,6 +100,7 @@ fn parse_body(fields: &[&str]) -> Result<EventBody, ParseError> {
         "EVENT_INVALID" => Ok(EventBody::Invalid),
         other => Ok(EventBody::Unknown {
             raw_type: other.to_string(),
+            raw_fields: fields[2..].iter().map(|s| s.to_string()).collect(),
         }),
     }
 }
@@ -343,7 +344,7 @@ fn parse_int_list(s: &str) -> Vec<u32> {
 
 /// A list of `(id, value)` tuples (`[(51,4),(42,4)]`). Lenient: a malformed tuple is skipped,
 /// because one unreadable entry should never cost the rest of the list.
-fn parse_pair_list<T: std::str::FromStr>(s: &str) -> Vec<(u32, T)> {
+pub fn parse_pair_list<T: std::str::FromStr>(s: &str) -> Vec<(u32, T)> {
     let Some(elements) = split_bracket_list(s.trim()) else {
         return Vec::new();
     };
@@ -381,7 +382,7 @@ fn parse_neck_traits(s: &str) -> Vec<NeckTraitChoice> {
 /// Split a group body on its top-level commas, respecting quoted strings and nested
 /// brackets/parens so a comma inside either never splits. The shared rule behind both the
 /// bracketed lists and the parenthesised tuples.
-fn split_top_level(inner: &str) -> Vec<&str> {
+pub fn split_top_level(inner: &str) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut depth = 0i32;
     let mut in_quote = false;
@@ -525,10 +526,17 @@ fn world_marker(fields: &[&str], removed: bool) -> Result<EventBody, ParseError>
 //
 // parse_guid, parse_school, parse_result, and parse_polarity live in `event.rs`,
 // colocated with the types they decode and their wire-rendering inverses.
+//
+// The functions below are `pub`: besides backing the family decoders above, they're
+// the toolkit for decoding `EventBody::Unknown`'s `raw_fields` into a consumer-owned
+// event type, so a caller extending the catalog isn't left re-deriving quoting and
+// nested bracket/paren tokenizing from scratch.
 
 /// Strip one layer of surrounding double quotes; no backslash escaping exists in
-/// the corpus, so a quoted string is simply `"…"`.
-fn unquote(s: &str) -> &str {
+/// the corpus, so a quoted string is simply `"…"`. Public so a consumer decoding
+/// their own event type out of `EventBody::Unknown`'s `raw_fields` can reuse the
+/// same quoting convention the built-in families use.
+pub fn unquote(s: &str) -> &str {
     s.strip_prefix('"')
         .and_then(|inner| inner.strip_suffix('"'))
         .unwrap_or(s)
@@ -536,7 +544,7 @@ fn unquote(s: &str) -> &str {
 
 /// A quoted-name array (`["Boss A","Xul, The Blood Monolith"]`) → the names. Uses
 /// the nesting-aware tokenizer so a name's internal comma never splits an element.
-fn parse_name_array(s: &str) -> Result<Vec<String>, ParseError> {
+pub fn parse_name_array(s: &str) -> Result<Vec<String>, ParseError> {
     let elements = split_bracket_list(s).ok_or(ParseError::BadField {
         field: 4,
         reason: "name array",
@@ -548,7 +556,7 @@ fn parse_name_array(s: &str) -> Result<Vec<String>, ParseError> {
 }
 
 /// A bracketed integer array (`[4,6,8,19]`) → the ids; `[]` yields no ids.
-fn parse_int_array(s: &str, field: usize) -> Result<Vec<u32>, ParseError> {
+pub fn parse_int_array(s: &str, field: usize) -> Result<Vec<u32>, ParseError> {
     let elements = split_bracket_list(s).ok_or(ParseError::BadField {
         field,
         reason: "int array",
@@ -570,7 +578,7 @@ fn parse_int_array(s: &str, field: usize) -> Result<Vec<u32>, ParseError> {
 /// A resource-tuple list (`[(2,100.00,100.00),(4,0.00,100.00)]`) → `(type,
 /// current, max)` triples. Lenient: a malformed tuple is skipped, not fatal — the
 /// snapshot is telemetry, not a load-bearing amount.
-fn parse_resource_tuples(s: &str) -> Vec<(u32, f64, f64)> {
+pub fn parse_resource_tuples(s: &str) -> Vec<(u32, f64, f64)> {
     let Some(elements) = split_bracket_list(s) else {
         return Vec::new();
     };
@@ -588,7 +596,7 @@ fn parse_resource_tuples(s: &str) -> Vec<(u32, f64, f64)> {
 }
 
 /// A bracketed float array (`[31922,0,32.60]`, mixed ints/floats) → the values.
-fn parse_float_array(s: &str, field: usize) -> Result<Vec<f64>, ParseError> {
+pub fn parse_float_array(s: &str, field: usize) -> Result<Vec<f64>, ParseError> {
     let elements = split_bracket_list(s).ok_or(ParseError::BadField {
         field,
         reason: "float array",
@@ -612,7 +620,7 @@ fn parse_float_array(s: &str, field: usize) -> Result<Vec<f64>, ParseError> {
 /// a quote or a nested group never splits. Input includes the outer `[` `]`; the
 /// nesting-awareness is what a deeper nested-payload decode will reuse. `None`
 /// when the outer brackets are absent.
-fn split_bracket_list(s: &str) -> Option<Vec<&str>> {
+pub fn split_bracket_list(s: &str) -> Option<Vec<&str>> {
     let inner = s.strip_prefix('[')?.strip_suffix(']')?;
     if inner.is_empty() {
         return Some(Vec::new());

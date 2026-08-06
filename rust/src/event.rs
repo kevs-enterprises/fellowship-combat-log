@@ -510,7 +510,9 @@ pub struct Event {
 }
 
 /// The typed body of a decoded line. Covers the full v8 event catalog; a token
-/// outside it becomes `Unknown` (surfaced, never dropped).
+/// outside it becomes `Unknown` (surfaced, never dropped, fields kept raw) — the
+/// extension point for a consumer that wants to decode an event type this crate
+/// doesn't know about, using the public primitives in `parse`/`encode`.
 #[derive(Clone, PartialEq, Debug)]
 pub enum EventBody {
     DamageHeal(DamageHeal),
@@ -538,5 +540,8 @@ pub enum EventBody {
     Invalid,
     Unknown {
         raw_type: String,
+        /// The line's fields from f3 onward, verbatim — decode them with the primitives in
+        /// `parse`/`encode` to build your own typed event on top of an unrecognized wire type.
+        raw_fields: Vec<String>,
     },
 }

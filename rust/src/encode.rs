@@ -2,8 +2,12 @@
 //! `parse`. Canonicalizing, not byte-exact (DR-0002): `parse(encode_line(e)?)? ==
 //! e` holds, but `encode_line(parse_line(text)?)?` is not guaranteed to equal
 //! `text`, since parsing already discards data (unit names, most unit-state
-//! sub-fields, the UTC offset, the full `Unknown`/`Invalid` payload) that
-//! encoding therefore has nothing to reconstruct.
+//! sub-fields, the UTC offset, the entire `Invalid` payload) that encoding
+//! therefore has nothing to reconstruct. `EventBody::Unknown` keeps its raw
+//! fields (DR-0003), but `encode_body` still refuses to re-assemble them
+//! generically — the type token past `Unknown` is opaque to this crate, so
+//! only a consumer that knows what it means can encode it back to text (see
+//! the `parse`/`encode` primitives it can reuse to do so).
 //!
 //! **Placeholder-value convention** for a field position the type doesn't
 //! retain: `0` for an int, `0.0` for a float, `[]` for a list, `"-"` for a
@@ -33,9 +37,12 @@ use crate::timestamp::render_instant;
 /// `Err`, never a panic, mirroring `ParseError` on the decode side.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum EncodeError {
-    /// The event's original payload was already discarded during parsing and
-    /// cannot be reconstructed (`EventBody::Unknown`/`::Invalid`). Carries the
-    /// wire-format type token for diagnostics.
+    /// This crate doesn't know how to encode the event: `EventBody::Invalid`'s
+    /// payload was discarded during parsing, and `EventBody::Unknown`'s raw
+    /// type is opaque here even though its fields were kept — a consumer that
+    /// knows what the type means can encode it itself from `raw_fields` using
+    /// the `pub` primitives in this module. Carries the wire-format type token
+    /// for diagnostics.
     Unrepresentable { event_type: String },
     /// A string field contains a character that would corrupt the wire format:
     /// a literal `|` (breaks the field framing everywhere — no field is safe
@@ -94,7 +101,7 @@ fn encode_body(body: &EventBody) -> Result<String, EncodeError> {
         EventBody::Invalid => Err(EncodeError::Unrepresentable {
             event_type: "EVENT_INVALID".to_string(),
         }),
-        EventBody::Unknown { raw_type } => Err(EncodeError::Unrepresentable {
+        EventBody::Unknown { raw_type, .. } => Err(EncodeError::Unrepresentable {
             event_type: raw_type.clone(),
         }),
     }
@@ -555,14 +562,16 @@ fn neck_trait_list(neck_traits: &[NeckTraitChoice]) -> String {
 
 // --- shared primitives ---
 //
-// Family-encoding tasks (#18-#21) build their event bodies out of these.
-// Every primitive in this section has a real caller as of #21, the last
-// family task.
+// The family encoders above build their event bodies out of these. They're
+// `pub`: a consumer encoding their own event type back to text — built from
+// `EventBody::Unknown`'s `raw_fields`, or from a type that never went through
+// `Unknown` at all — reuses the exact wire-format rendering rules here rather
+// than re-deriving quoting, list bracketing, and float formatting from scratch.
 
 /// A `|` anywhere corrupts the pipe-split that frames every line — the wire
 /// format has no escaping (`parse.rs`'s module doc: "no `|` inside quoted
 /// strings or bracketed lists"). Checked for every string field, quoted or not.
-fn validate_text(s: &str, field: &'static str) -> Result<(), EncodeError> {
+pub fn validate_text(s: &str, field: &'static str) -> Result<(), EncodeError> {
     if s.contains('|') {
         return Err(EncodeError::InvalidText {
             field,
@@ -575,13 +584,13 @@ fn validate_text(s: &str, field: &'static str) -> Result<(), EncodeError> {
 /// Join already-rendered elements into a bracketed list (`[e1,e2,...]`); `[]`
 /// for empty, byte-for-byte — the only path `split_bracket_list`'s empty-inner
 /// check accepts as zero elements. Shared by every list-shaped primitive below.
-fn bracketed(elements: Vec<String>) -> String {
+pub fn bracketed(elements: Vec<String>) -> String {
     format!("[{}]", elements.join(","))
 }
 
 /// Wrap `s` in double quotes for a quoted wire field. `field` names the struct
 /// field being encoded, for diagnostics.
-pub(crate) fn render_quoted(s: &str, field: &'static str) -> Result<String, EncodeError> {
+pub fn render_quoted(s: &str, field: &'static str) -> Result<String, EncodeError> {
     validate_text(s, field)?;
     Ok(format!("\"{s}\""))
 }
@@ -589,7 +598,7 @@ pub(crate) fn render_quoted(s: &str, field: &'static str) -> Result<String, Enco
 /// Render `s` as a raw wire field with no surrounding quotes — `CombatantInfo`'s
 /// `ulid` and `LoggingStarted`'s `game_build` are the two fields the wire format
 /// carries this way (`game_build` contains a space but is still unquoted).
-pub(crate) fn render_unquoted(s: &str, field: &'static str) -> Result<String, EncodeError> {
+pub fn render_unquoted(s: &str, field: &'static str) -> Result<String, EncodeError> {
     validate_text(s, field)?;
     Ok(s.to_string())
 }
@@ -598,10 +607,7 @@ pub(crate) fn render_unquoted(s: &str, field: &'static str) -> Result<String, En
 /// wrapped in `[...]`. An embedded `"` inside an element is rejected — unlike a
 /// top-level quoted field, an array element goes through `split_top_level`'s
 /// quote-toggle tracking on re-parse, which a stray `"` would desynchronize.
-pub(crate) fn render_name_array(
-    names: &[String],
-    field: &'static str,
-) -> Result<String, EncodeError> {
+pub fn render_name_array(names: &[String], field: &'static str) -> Result<String, EncodeError> {
     let mut elements = Vec::with_capacity(names.len());
     for name in names {
         validate_text(name, field)?;
@@ -617,7 +623,7 @@ pub(crate) fn render_name_array(
 }
 
 /// A bracketed int array (`[4,6,8,19]`).
-pub(crate) fn render_int_array(values: &[u32]) -> String {
+pub fn render_int_array(values: &[u32]) -> String {
     bracketed(values.iter().map(u32::to_string).collect())
 }
 
@@ -625,7 +631,7 @@ pub(crate) fn render_int_array(values: &[u32]) -> String {
 /// decimal string that re-parses to the identical value. Not fixed precision:
 /// DR-0002's contract is `parse(encode(e)) == e`, which a fixed number of
 /// decimal places cannot guarantee for an arbitrary float.
-pub(crate) fn render_float(value: f64, field: &'static str) -> Result<String, EncodeError> {
+pub fn render_float(value: f64, field: &'static str) -> Result<String, EncodeError> {
     if !value.is_finite() {
         return Err(EncodeError::NonFiniteFloat { field });
     }
@@ -634,10 +640,7 @@ pub(crate) fn render_float(value: f64, field: &'static str) -> Result<String, En
 
 /// A bracketed float array; each element under the same finiteness contract as
 /// `render_float`.
-pub(crate) fn render_float_array(
-    values: &[f64],
-    field: &'static str,
-) -> Result<String, EncodeError> {
+pub fn render_float_array(values: &[f64], field: &'static str) -> Result<String, EncodeError> {
     let mut elements = Vec::with_capacity(values.len());
     for &value in values {
         elements.push(render_float(value, field)?);
@@ -649,7 +652,7 @@ pub(crate) fn render_float_array(
 /// render via `render_float`'s shortest-form rule, not the corpus's original
 /// fixed 2dp rendering (`(2,100.00,100.00)`) — DR-0002's contract only requires
 /// `parse(encode(e)) == e`, which shortest-form already satisfies.
-pub(crate) fn render_resource_tuples(
+pub fn render_resource_tuples(
     tuples: &[(u32, f64, f64)],
     field: &'static str,
 ) -> Result<String, EncodeError> {
@@ -667,7 +670,7 @@ pub(crate) fn render_resource_tuples(
 /// An `(id, value)` pair list (`[(51,4),(42,4)]`) — gear stats/ability
 /// grants/traits/gems, `CombatantInfo.trait_ranks`. `T` covers both `u32`
 /// (grants/traits/gems/ranks) and `i64` (stats, which can be negative).
-pub(crate) fn render_pair_list<T: std::fmt::Display>(pairs: &[(u32, T)]) -> String {
+pub fn render_pair_list<T: std::fmt::Display>(pairs: &[(u32, T)]) -> String {
     bracketed(
         pairs
             .iter()

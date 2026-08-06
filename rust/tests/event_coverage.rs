@@ -49,7 +49,8 @@ fn an_out_of_catalog_token_surfaces_as_unknown() {
     assert_eq!(
         body,
         EventBody::Unknown {
-            raw_type: "SOME_FUTURE_EVENT".to_string()
+            raw_type: "SOME_FUTURE_EVENT".to_string(),
+            raw_fields: vec!["a".to_string(), "b".to_string()],
         }
     );
 }

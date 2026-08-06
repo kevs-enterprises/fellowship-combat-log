@@ -783,7 +783,10 @@ impl From<&EventBody> for EventBodyJson {
             EventBody::WorldMarker(inner) => EventBodyJson::WorldMarker(inner.into()),
             EventBody::CombatantInfo(inner) => EventBodyJson::CombatantInfo(inner.into()),
             EventBody::Invalid => EventBodyJson::Invalid,
-            EventBody::Unknown { raw_type } => EventBodyJson::Unknown {
+            // `raw_fields` (DR-0003) stays Rust-only for now — not yet propagated across
+            // the JSON boundary; see the crate's `extend_custom_event` test/README section
+            // for the Rust-side extension path this bridge doesn't yet expose.
+            EventBody::Unknown { raw_type, .. } => EventBodyJson::Unknown {
                 raw_type: raw_type.clone(),
             },
         }
