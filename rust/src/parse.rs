@@ -11,7 +11,8 @@ use crate::event::{
     Cast, CastPhase, CombatantInfo, DamageAbsorbed, DamageHeal, DamageHealKind, Death, DeathKind,
     Dispel, DungeonEnd, DungeonStart, Effect, EffectPhase, Encounter, EncounterPhase, Event,
     EventBody, GearPiece, Guid, Interrupt, LoggingStarted, MapChange, Marker, NeckTraitChoice,
-    Polarity, ResourceChange, ResultTier, Resurrect, School, WorldMarker, ZoneChange,
+    Polarity, ResourceChange, ResultTier, Resurrect, School, WorldMarker, ZoneChange, parse_guid,
+    parse_polarity, parse_result, parse_school,
 };
 use crate::timestamp::parse_instant;
 
@@ -126,6 +127,27 @@ fn guid(fields: &[&str], n: usize, reason: &'static str) -> Result<Guid, ParseEr
     parse_guid(field(fields, n)?).ok_or(ParseError::BadField { field: n, reason })
 }
 
+fn school(fields: &[&str], n: usize) -> Result<School, ParseError> {
+    parse_school(field(fields, n)?).ok_or(ParseError::BadField {
+        field: n,
+        reason: "school",
+    })
+}
+
+fn result_tier(fields: &[&str], n: usize) -> Result<ResultTier, ParseError> {
+    parse_result(field(fields, n)?).ok_or(ParseError::BadField {
+        field: n,
+        reason: "result tier",
+    })
+}
+
+fn polarity(fields: &[&str], n: usize) -> Result<Polarity, ParseError> {
+    parse_polarity(field(fields, n)?).ok_or(ParseError::BadField {
+        field: n,
+        reason: "polarity",
+    })
+}
+
 // --- family decoders (only the fields decoded so far; unit-state deferred) ---
 
 /// Shared 30-field damage/heal anatomy. The source/target unit-state blocks
@@ -142,8 +164,8 @@ fn damage_heal(fields: &[&str], kind: DamageHealKind) -> Result<EventBody, Parse
         overkill: number(fields, 12, "overkill")?,
         blocked: number(fields, 13, "blocked")?,
         raw: number(fields, 14, "raw")?,
-        school: parse_school(field(fields, 15)?)?,
-        result: parse_result(field(fields, 16)?)?,
+        school: school(fields, 15)?,
+        result: result_tier(fields, 16)?,
         source_cur_hp: normalize_hp(fields, 17)?,
         target_cur_hp: normalize_hp(fields, 24)?,
     }))
@@ -204,7 +226,7 @@ fn effect(fields: &[&str], phase: EffectPhase) -> Result<EventBody, ParseError> 
         effect_id: number(fields, 7, "effect id")?,
         duration_seconds: number(fields, 9, "duration")?,
         stacks: number(fields, 10, "stacks")?,
-        polarity: parse_polarity(field(fields, 11)?)?,
+        polarity: polarity(fields, 11)?,
         granting_ability_id: number(fields, 19, "granting ability")?,
         refresher: match phase {
             EffectPhase::Refreshed => Some(guid(fields, 22, "refresher")?),
@@ -410,7 +432,7 @@ fn dispel(fields: &[&str]) -> Result<EventBody, ParseError> {
         dispel_ability_id: number(fields, 7, "dispel ability")?,
         removed_effect_id: number(fields, 9, "removed effect")?,
         remaining_seconds: number(fields, 11, "remaining")?,
-        polarity: parse_polarity(field(fields, 12)?)?,
+        polarity: polarity(fields, 12)?,
     }))
 }
 
@@ -500,68 +522,9 @@ fn world_marker(fields: &[&str], removed: bool) -> Result<EventBody, ParseError>
 }
 
 // --- primitive decoders ---
-
-/// Decode a unit id across the four v8 namespaces. `None` when the namespace or
-/// its numeric parts don't parse, so the caller can report which field failed.
-fn parse_guid(s: &str) -> Option<Guid> {
-    if s == "Environment-0" {
-        return Some(Guid::Environment);
-    }
-    if s == "UnrecognizedType-0" {
-        return Some(Guid::Unrecognized);
-    }
-    if let Some(rest) = s.strip_prefix("Player-") {
-        return rest.parse::<u32>().ok().map(Guid::Player);
-    }
-    if let Some(rest) = s.strip_prefix("Npc-") {
-        let (spawn, template) = rest.split_once('-')?;
-        return Some(Guid::Npc {
-            spawn: spawn.parse().ok()?,
-            template: template.parse().ok()?,
-        });
-    }
-    None
-}
-
-fn parse_school(s: &str) -> Result<School, ParseError> {
-    match s {
-        "Physical" => Ok(School::Physical),
-        "Magical" => Ok(School::Magical),
-        "None" => Ok(School::None),
-        _ => Err(ParseError::BadField {
-            field: 15,
-            reason: "school",
-        }),
-    }
-}
-
-fn parse_result(s: &str) -> Result<ResultTier, ParseError> {
-    match s {
-        "Hit" => Ok(ResultTier::Hit),
-        "CriticalStrike" => Ok(ResultTier::CriticalStrike),
-        "GrievousCriticalStrike" => Ok(ResultTier::GrievousCriticalStrike),
-        "Block" => Ok(ResultTier::Block),
-        "Parry" => Ok(ResultTier::Parry),
-        "Dodge" => Ok(ResultTier::Dodge),
-        "Miss" => Ok(ResultTier::Miss),
-        "None" => Ok(ResultTier::None),
-        _ => Err(ParseError::BadField {
-            field: 16,
-            reason: "result tier",
-        }),
-    }
-}
-
-fn parse_polarity(s: &str) -> Result<Polarity, ParseError> {
-    match s {
-        "BUFF" => Ok(Polarity::Buff),
-        "DEBUFF" => Ok(Polarity::Debuff),
-        _ => Err(ParseError::BadField {
-            field: 11,
-            reason: "polarity",
-        }),
-    }
-}
+//
+// parse_guid, parse_school, parse_result, and parse_polarity live in `event.rs`,
+// colocated with the types they decode and their wire-rendering inverses.
 
 /// Strip one layer of surrounding double quotes; no backslash escaping exists in
 /// the corpus, so a quoted string is simply `"…"`.
