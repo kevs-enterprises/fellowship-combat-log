@@ -125,5 +125,9 @@ test("malformed.log: every line rejects with an Error, never resolves", async ()
 
 test("an unrecognized event type decodes as Unknown rather than throwing", async () => {
   const event = await parseLine(1, '2026-07-22T10:29:06.540+02:00|SOME_FUTURE_EVENT|1|2|3');
-  assert.deepEqual(event.body, { type: "Unknown", rawType: "SOME_FUTURE_EVENT" });
+  assert.deepEqual(event.body, {
+    type: "Unknown",
+    rawType: "SOME_FUTURE_EVENT",
+    rawFields: ["1", "2", "3"],
+  });
 });

@@ -343,6 +343,7 @@ class EventBodyInvalid(TypedDict):
 class EventBodyUnknown(TypedDict):
     type: Literal["Unknown"]
     raw_type: str
+    raw_fields: List[str]
 
 EventBody = Union[
     EventBodyDamageHeal,
