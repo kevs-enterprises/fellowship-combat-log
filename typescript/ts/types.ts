@@ -328,7 +328,7 @@ export type EventBody =
   | ({ type: "CombatantInfo" } & CombatantInfo)
   /** The vestigial `EVENT_INVALID` line — damage-shaped but safe to drop. */
   | { type: "Invalid" }
-  | { type: "Unknown"; rawType: string };
+  | { type: "Unknown"; rawType: string; rawFields: string[] };
 
 /** One decoded v8 log line: its instant plus a typed body. */
 export interface Event {

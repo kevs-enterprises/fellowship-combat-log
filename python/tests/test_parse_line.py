@@ -110,6 +110,15 @@ def test_environment_and_unrecognized_guid_namespaces():
     assert body["target"] == {"type": "Unrecognized"}
 
 
+def test_an_unrecognized_event_type_decodes_as_unknown():
+    body = fcl.parse_line(1, "2026-07-22T10:29:06.540+02:00|SOME_FUTURE_EVENT|1|2|3")["body"]
+    assert body == {
+        "type": "Unknown",
+        "raw_type": "SOME_FUTURE_EVENT",
+        "raw_fields": ["1", "2", "3"],
+    }
+
+
 def test_version_is_a_nonempty_string():
     version = fcl.version()
     assert isinstance(version, str)

@@ -757,6 +757,7 @@ pub enum EventBodyJson {
     Invalid,
     Unknown {
         raw_type: String,
+        raw_fields: Vec<String>,
     },
 }
 
@@ -783,11 +784,12 @@ impl From<&EventBody> for EventBodyJson {
             EventBody::WorldMarker(inner) => EventBodyJson::WorldMarker(inner.into()),
             EventBody::CombatantInfo(inner) => EventBodyJson::CombatantInfo(inner.into()),
             EventBody::Invalid => EventBodyJson::Invalid,
-            // `raw_fields` (DR-0003) stays Rust-only for now — not yet propagated across
-            // the JSON boundary; see the crate's `extend_custom_event` test/README section
-            // for the Rust-side extension path this bridge doesn't yet expose.
-            EventBody::Unknown { raw_type, .. } => EventBodyJson::Unknown {
+            EventBody::Unknown {
+                raw_type,
+                raw_fields,
+            } => EventBodyJson::Unknown {
                 raw_type: raw_type.clone(),
+                raw_fields: raw_fields.clone(),
             },
         }
     }
