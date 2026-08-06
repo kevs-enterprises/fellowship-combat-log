@@ -12,3 +12,14 @@ crate-type = ["cdylib"]
 
 [dependencies]
 fellowship-combat-log = { path = "../rust" }
+js-sys = "0.3.103"
+serde = { version = "1.0.229", features = ["derive"] }
+serde-wasm-bindgen = "0.6.5"
+wasm-bindgen = "0.2.126"
+
+# `wasm-opt` (binaryen) fetches a prebuilt binary from a GitHub release at build
+# time; skip that extra network dependency and toolchain fetch and rely on
+# rustc's own release-profile optimizations, which are enough for a small,
+# dependency-free crate like this one.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

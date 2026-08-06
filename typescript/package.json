@@ -1,0 +1,48 @@
+{
+  "name": "fellowship-combat-log",
+  "version": "0.1.0",
+  "description": "Decoder for Fellowship's Advanced Combat Log: log text in, typed events out. TypeScript/JavaScript bindings (wasm) for the fellowship-combat-log Rust crate.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kevs-enterprises/fellowship-combat-log"
+  },
+  "keywords": [
+    "fellowship",
+    "combat-log",
+    "parser",
+    "gamedev",
+    "wasm"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "pkg",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build:wasm": "wasm-pack build --target web --out-dir pkg --out-name fellowship_combat_log --release",
+    "build:ts": "tsc -p tsconfig.json",
+    "build": "npm run build:wasm && npm run build:ts",
+    "pretest": "npm run build",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3"
+  }
+}
