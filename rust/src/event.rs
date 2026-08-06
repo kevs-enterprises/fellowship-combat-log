@@ -1,7 +1,9 @@
-//! The typed event model a parsed v8 line decodes into. Data types only — the
-//! decoding lives in `parse`. Field maps follow the v8 combat-log format. Not
-//! every field is decoded yet: the source/target unit-state blocks and the
-//! deeply-nested parts of the `COMBATANT_INFO` payload are still raw.
+//! The typed event model a parsed v8 line decodes into, plus the small
+//! bidirectional codecs (`Guid`, `School`, `ResultTier`, `Polarity`) colocated
+//! with the types they convert. Line-level dispatch and family decoding stay in
+//! `parse`. Field maps follow the v8 combat-log format. Not every field is
+//! decoded yet: the source/target unit-state blocks and the deeply-nested parts
+//! of the `COMBATANT_INFO` payload are still raw.
 
 use crate::timestamp::LogInstant;
 
@@ -14,6 +16,41 @@ pub enum Guid {
     Npc { spawn: u32, template: u32 },
     Environment,
     Unrecognized,
+}
+
+impl Guid {
+    /// Render this id back to its wire form: `Player-{n}`, `Npc-{spawn}-{template}`,
+    /// `Environment-0`, or `UnrecognizedType-0`. The inverse of `parse_guid`.
+    pub fn render(&self) -> String {
+        match self {
+            Guid::Player(n) => format!("Player-{n}"),
+            Guid::Npc { spawn, template } => format!("Npc-{spawn}-{template}"),
+            Guid::Environment => "Environment-0".to_string(),
+            Guid::Unrecognized => "UnrecognizedType-0".to_string(),
+        }
+    }
+}
+
+/// Decode a unit id across the four v8 namespaces. `None` when the namespace or
+/// its numeric parts don't parse, so the caller can report which field failed.
+pub fn parse_guid(s: &str) -> Option<Guid> {
+    if s == "Environment-0" {
+        return Some(Guid::Environment);
+    }
+    if s == "UnrecognizedType-0" {
+        return Some(Guid::Unrecognized);
+    }
+    if let Some(rest) = s.strip_prefix("Player-") {
+        return rest.parse::<u32>().ok().map(Guid::Player);
+    }
+    if let Some(rest) = s.strip_prefix("Npc-") {
+        let (spawn, template) = rest.split_once('-')?;
+        return Some(Guid::Npc {
+            spawn: spawn.parse().ok()?,
+            template: template.parse().ok()?,
+        });
+    }
+    None
 }
 
 /// Attack/heal result tier (damage/heal f16). Crits are indicated *only* here.
@@ -29,12 +66,66 @@ pub enum ResultTier {
     None,
 }
 
+impl ResultTier {
+    /// Render back to its wire token. The inverse of `parse_result`.
+    pub fn render(self) -> &'static str {
+        match self {
+            ResultTier::Hit => "Hit",
+            ResultTier::CriticalStrike => "CriticalStrike",
+            ResultTier::GrievousCriticalStrike => "GrievousCriticalStrike",
+            ResultTier::Block => "Block",
+            ResultTier::Parry => "Parry",
+            ResultTier::Dodge => "Dodge",
+            ResultTier::Miss => "Miss",
+            ResultTier::None => "None",
+        }
+    }
+}
+
+/// Decode a result-tier wire token. `None` when the token is out of the eight
+/// known variants.
+pub fn parse_result(s: &str) -> Option<ResultTier> {
+    match s {
+        "Hit" => Some(ResultTier::Hit),
+        "CriticalStrike" => Some(ResultTier::CriticalStrike),
+        "GrievousCriticalStrike" => Some(ResultTier::GrievousCriticalStrike),
+        "Block" => Some(ResultTier::Block),
+        "Parry" => Some(ResultTier::Parry),
+        "Dodge" => Some(ResultTier::Dodge),
+        "Miss" => Some(ResultTier::Miss),
+        "None" => Some(ResultTier::None),
+        _ => None,
+    }
+}
+
 /// Damage school (damage/heal f15).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum School {
     Physical,
     Magical,
     None,
+}
+
+impl School {
+    /// Render back to its wire token. The inverse of `parse_school`.
+    pub fn render(self) -> &'static str {
+        match self {
+            School::Physical => "Physical",
+            School::Magical => "Magical",
+            School::None => "None",
+        }
+    }
+}
+
+/// Decode a damage-school wire token. `None` when the token is out of the three
+/// known variants.
+pub fn parse_school(s: &str) -> Option<School> {
+    match s {
+        "Physical" => Some(School::Physical),
+        "Magical" => Some(School::Magical),
+        "None" => Some(School::None),
+        _ => None,
+    }
 }
 
 /// Which of the six families sharing the 30-field damage/heal anatomy a row is.
@@ -129,6 +220,27 @@ pub enum EffectPhase {
 pub enum Polarity {
     Buff,
     Debuff,
+}
+
+impl Polarity {
+    /// Render back to its wire token — uppercase, the one enum whose wire case
+    /// differs from its Rust variant name. The inverse of `parse_polarity`.
+    pub fn render(self) -> &'static str {
+        match self {
+            Polarity::Buff => "BUFF",
+            Polarity::Debuff => "DEBUFF",
+        }
+    }
+}
+
+/// Decode a polarity wire token (uppercase). `None` when the token is neither
+/// `BUFF` nor `DEBUFF`.
+pub fn parse_polarity(s: &str) -> Option<Polarity> {
+    match s {
+        "BUFF" => Some(Polarity::Buff),
+        "DEBUFF" => Some(Polarity::Debuff),
+        _ => None,
+    }
 }
 
 /// An effect (aura) applied/removed/refreshed event. The target unit-state block

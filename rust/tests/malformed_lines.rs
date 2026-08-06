@@ -1,7 +1,7 @@
 //! Total-parsing regression: malformed / short lines and a bad timestamp return
 //! an error, never a panic (the parse surface is total). Asserted by fixture.
 
-use fellowship_combat_log::parse::parse_line;
+use fellowship_combat_log::parse::{ParseError, parse_line};
 
 #[test]
 fn malformed_lines_error_without_panic() {
@@ -43,5 +43,31 @@ fn adversarial_timestamps_error_not_panic() {
             "2026-02-31T08:45:49.764+02:00|ENCOUNTER_START|30|[\"B\"]"
         )
         .is_err()
+    );
+}
+
+#[test]
+fn a_bad_polarity_token_attributes_the_calling_familys_own_field_number() {
+    // ABILITY_DISPEL reads polarity at f12 — a bad token there must attribute
+    // field 12, not the field 11 the pre-fix code always hardcoded regardless of
+    // which family called it.
+    let dispel = "2026-07-22T10:00:00.000+00:00|ABILITY_DISPEL|Player-1000000001|\"P1\"|Npc-1000000000-1|\"Test\"|100|\"Ability\"|200|\"Effect\"|5.0|INVALID";
+    assert_eq!(
+        parse_line(1, dispel),
+        Err(ParseError::BadField {
+            field: 12,
+            reason: "polarity"
+        })
+    );
+
+    // EFFECT_APPLIED reads polarity at f11 — this was already correct before the
+    // fix, and must stay correct now that the field number travels per call site.
+    let effect = "2026-07-22T10:00:00.000+00:00|EFFECT_APPLIED|Player-1000000001|\"P1\"|Npc-1000000000-1|\"Test\"|100|\"Effect\"|5.0|1|INVALID";
+    assert_eq!(
+        parse_line(1, effect),
+        Err(ParseError::BadField {
+            field: 11,
+            reason: "polarity"
+        })
     );
 }
