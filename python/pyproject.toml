@@ -1,0 +1,30 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "fellowship-combat-log"
+version = "0.1.0"
+description = "Decoder for Fellowship's Advanced Combat Log: log text in, typed events out (PyO3 bindings)."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+authors = [{ name = "Kevs Enterprises" }]
+keywords = ["fellowship", "combat-log", "parser", "gamedev"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Games/Entertainment",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Repository = "https://github.com/kevs-enterprises/fellowship-combat-log"
+
+[tool.maturin]
+python-source = "python"
+module-name = "fellowship_combat_log.fellowship_combat_log"
