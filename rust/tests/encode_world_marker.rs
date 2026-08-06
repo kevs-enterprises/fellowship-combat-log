@@ -68,6 +68,7 @@ fn unknown_and_invalid_are_unrepresentable() {
         instant: LogInstant { utc_ms: 0, seq: 1 },
         body: EventBody::Unknown {
             raw_type: "SOME_FUTURE_EVENT".to_string(),
+            raw_fields: vec![],
         },
     };
     assert_eq!(

@@ -171,7 +171,8 @@ fn unknown_event_types_are_surfaced_not_dropped() {
     assert_eq!(
         body,
         EventBody::Unknown {
-            raw_type: "SOME_FUTURE_EVENT".to_string()
+            raw_type: "SOME_FUTURE_EVENT".to_string(),
+            raw_fields: vec!["a".to_string(), "b".to_string(), "c".to_string()],
         }
     );
 }
